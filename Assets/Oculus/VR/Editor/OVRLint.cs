@@ -556,7 +556,7 @@ public class OVRLint : EditorWindow
 				}, clips[i], false, "Change to Compressed in Memory", "Change to Streaming");
 			}
 
-			if (clips[i].preloadAudioData)
+			if (IsAudioPreloaded(clips[i]))
 			{
 				AddFix(eRecordType.StaticCommon, "Audio Preload", "For fast loading, please don't preload data for audio clips.", delegate (UnityEngine.Object obj, bool last, int selected)
 				{
@@ -917,6 +917,23 @@ public class OVRLint : EditorWindow
 		return light.lightmapBakeType == LightmapBakeType.Baked;
 	}
 
+	static AudioImporter GetAudioImporter(AudioClip clip)
+	{
+		if (clip == null)
+		{
+			return null;
+		}
+
+		string assetPath = AssetDatabase.GetAssetPath(clip);
+		return AssetImporter.GetAtPath(assetPath) as AudioImporter;
+	}
+
+	static bool IsAudioPreloaded(AudioClip clip)
+	{
+		AudioImporter importer = GetAudioImporter(clip);
+		return importer != null && importer.defaultSampleSettings.preloadAudioData;
+	}
+
 	static void SetAudioPreload(AudioClip clip, bool preload, bool refreshImmediately)
 	{
 		if (clip != null)
@@ -925,9 +942,11 @@ public class OVRLint : EditorWindow
 			AudioImporter importer = AssetImporter.GetAtPath(assetPath) as AudioImporter;
 			if (importer != null)
 			{
-				if (preload != importer.preloadAudioData)
+				AudioImporterSampleSettings settings = importer.defaultSampleSettings;
+				if (preload != settings.preloadAudioData)
 				{
-					importer.preloadAudioData = preload;
+					settings.preloadAudioData = preload;
+					importer.defaultSampleSettings = settings;
 
 					AssetDatabase.ImportAsset(assetPath);
 					if (refreshImmediately)
