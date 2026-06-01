@@ -4,7 +4,11 @@ public class ObstacleDespawning : MonoBehaviour
 {
     [SerializeField]
     private PlayerTracker playerTracker;
-    public Transform playerTransform;
+
+    private void Start()
+    {
+        ResolvePlayerTracker();
+    }
 
     private void Start()
     {
@@ -29,18 +33,29 @@ public class ObstacleDespawning : MonoBehaviour
 
     private void Update()
     {
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
+        {
+            Debug.LogError("ObstacleDespawning necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+            return;
+        }
+
+        transform.position = playerTracker.PlayerPosition;
+    }
+
+    private PlayerTracker ResolvePlayerTracker()
+    {
         if (playerTracker != null)
         {
-            transform.position = playerTracker.PlayerPosition;
-            return;
+            return playerTracker;
         }
 
-        if (playerTransform == null)
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
         {
-            Debug.LogError("ObstacleDespawning necesita PlayerTracker o playerTransform para seguir la cabeza del rig Auto Hand/OpenXR.", this);
-            return;
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
         }
 
-        transform.position = playerTransform.position;
+        return playerTracker;
     }
 }

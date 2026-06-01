@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class CanvasFocusScript : MonoBehaviour
@@ -8,14 +6,10 @@ public class CanvasFocusScript : MonoBehaviour
     private CanvasGroup canvas;
     [SerializeField]
     private PlayerTracker playerTracker;
-    public Transform mainCamera;
 
     private void Start()
     {
-        if (playerTracker == null && ServiceLocator.Instance != null)
-        {
-            playerTracker = ServiceLocator.Instance.PlayerTracker;
-        }
+        ResolvePlayerTracker();
     }
 
     // Update is called once per frame
@@ -27,23 +21,30 @@ public class CanvasFocusScript : MonoBehaviour
             return;
         }
 
-        Vector3 cameraPosition;
+        ResolvePlayerTracker();
 
-        if (playerTracker != null)
+        if (playerTracker == null)
         {
-            cameraPosition = playerTracker.PlayerPosition;
-        }
-        else if (mainCamera != null)
-        {
-            cameraPosition = mainCamera.position;
-        }
-        else
-        {
-            Debug.LogError("CanvasFocusScript necesita PlayerTracker o mainCamera para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+            Debug.LogError("CanvasFocusScript necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
             return;
         }
 
-        Vector3 dir = cameraPosition - this.gameObject.transform.position;
+        Vector3 dir = playerTracker.PlayerPosition - this.gameObject.transform.position;
         canvas.alpha = Mathf.Clamp01(Vector3.Dot(dir.normalized, -this.gameObject.transform.forward));
+    }
+
+    private PlayerTracker ResolvePlayerTracker()
+    {
+        if (playerTracker != null)
+        {
+            return playerTracker;
+        }
+
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+
+        return playerTracker;
     }
 }
