@@ -1,6 +1,6 @@
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +27,7 @@ using UnityEngine.Networking;
 /// 1) com.unity.nuget.newtonsoft-json
 /// 2) MQTTnet compatible con Unity/Android, importado como DLL o por NuGetForUnity.
 /// </summary>
-public class VrDrupalClient : MonoBehaviour
+public class VrDrupalClient : MonoBehaviour, IBusEventCallback
 {
     [Header("Drupal API")]
     [SerializeField] private string drupalBaseUrl = "https://rehabilitacion.app.citius.gal";
@@ -45,6 +45,13 @@ public class VrDrupalClient : MonoBehaviour
 
     [Header("Runtime state")]
     [SerializeField] private bool connectOnStart = true;
+
+    [Header("Exercise event reporting")]
+    [SerializeField] private bool sendExerciseEventsFromEventBus = true;
+    [SerializeField] private UserManager userManager;
+    [SerializeField] private ScoreSystem scoreSystem;
+    [SerializeField] private RoutineManager routineManager;
+    [SerializeField] private PlayerTracker playerTracker;
 
     public event Action<JObject> SessionsReceived;
     public event Action<ServerCommand> CommandReceived;
@@ -67,6 +74,35 @@ public class VrDrupalClient : MonoBehaviour
     private IMqttClient mqttClient;
     private CancellationTokenSource heartbeatCancellation;
     private readonly ConcurrentQueue<Action> mainThreadQueue = new ConcurrentQueue<Action>();
+    private bool isDisconnecting;
+    private bool eventBusSubscribed;
+    private DateTimeOffset? sessionStartTime;
+
+    private void OnEnable()
+    {
+        if (!sendExerciseEventsFromEventBus || eventBusSubscribed)
+        {
+            return;
+        }
+
+        EventBus.CaptureEvents(this);
+        EventBus.Subscribe(HandleRehabStart, GameEvent.START_REHAB);
+        EventBus.Subscribe(HandleRehabEnd, GameEvent.END_REHAB);
+        eventBusSubscribed = true;
+    }
+
+    private void OnDisable()
+    {
+        if (!eventBusSubscribed)
+        {
+            return;
+        }
+
+        EventBus.StopCapturingEvents(this);
+        EventBus.Unsubscribe(HandleRehabStart, GameEvent.START_REHAB);
+        EventBus.Unsubscribe(HandleRehabEnd, GameEvent.END_REHAB);
+        eventBusSubscribed = false;
+    }
 
     private void Start()
     {
@@ -94,6 +130,56 @@ public class VrDrupalClient : MonoBehaviour
     private async void OnApplicationQuit()
     {
         await DisconnectAsync();
+    }
+
+    private async void OnDestroy()
+    {
+        await DisconnectAsync();
+    }
+
+    public void HandleEvent(GameEvent gameEvent)
+    {
+        if (!sendExerciseEventsFromEventBus || !IsExerciseResultEvent(gameEvent))
+        {
+            return;
+        }
+
+        _ = SendExerciseResultForGameEventAsync(gameEvent);
+    }
+
+    private void HandleRehabStart()
+    {
+        sessionStartTime = DateTimeOffset.UtcNow;
+    }
+
+    private void HandleRehabEnd()
+    {
+        StoreLocalScoreSummary();
+        sessionStartTime = null;
+    }
+
+    private void StoreLocalScoreSummary()
+    {
+        if (userManager == null || userManager.activeUser == null || scoreSystem == null || routineManager == null || routineManager.selectedRoutine == null)
+        {
+            return;
+        }
+
+        DateTime startTime = sessionStartTime.HasValue
+            ? sessionStartTime.Value.UtcDateTime
+            : DateTime.UtcNow;
+
+        userManager.AddScoreInformation(new ScoreRecords(
+            routineManager.selectedRoutine.routineDuration,
+            scoreSystem.comboMax,
+            scoreSystem.score,
+            scoreSystem.squatSuccess,
+            scoreSystem.movementSuccess,
+            scoreSystem.punchSuccess,
+            scoreSystem.squatTotal,
+            scoreSystem.movementTotal,
+            scoreSystem.punchTotal,
+            startTime));
     }
 
     /// <summary>
@@ -135,6 +221,8 @@ public class VrDrupalClient : MonoBehaviour
         DeviceId = null;
         DeviceSecret = null;
         DrupalToken = null;
+        SessionsPayload = null;
+        CurrentSession = new SessionState();
     }
 
     private void LoadSavedCredentials()
@@ -219,6 +307,7 @@ public class VrDrupalClient : MonoBehaviour
 
         string url = CombineUrl(drupalBaseUrl, "/api/glass") + "?id=" + UnityWebRequest.EscapeURL(DeviceId);
         SessionsPayload = await GetJsonAsync(url, DrupalToken);
+        UpdateCurrentSessionFromPayload(SessionsPayload);
 
         EnqueueMainThread(() => SessionsReceived?.Invoke(SessionsPayload));
         return SessionsPayload;
@@ -237,7 +326,8 @@ public class VrDrupalClient : MonoBehaviour
         MovementData movementData,
         string eventType = "execution",
         string eventId = null,
-        DateTimeOffset? timestamp = null)
+        DateTimeOffset? timestamp = null,
+        JObject additionalMetadata = null)
     {
         RequireAuthorized();
 
@@ -245,20 +335,34 @@ public class VrDrupalClient : MonoBehaviour
         if (string.IsNullOrWhiteSpace(userId)) throw new ArgumentException("userId vacío.");
         if (string.IsNullOrWhiteSpace(exerciseId)) throw new ArgumentException("exerciseId vacío.");
         if (string.IsNullOrWhiteSpace(outcome)) throw new ArgumentException("outcome vacío.");
+        outcome = outcome.Trim().ToLowerInvariant();
+        if (!IsKnownOutcome(outcome)) throw new ArgumentException("outcome debe ser success, failure o missed.");
+        if (movementData == null) throw new ArgumentNullException(nameof(movementData), "movementData debe contener datos reales del ejercicio.");
 
         DateTimeOffset ts = timestamp ?? DateTimeOffset.UtcNow;
         string timestampIso = ts.ToString("o");
 
+        JObject metadata = new JObject
+        {
+            ["version"] = "v1",
+            ["timestamp"] = timestampIso,
+            ["source"] = "CiTIUS",
+            ["routine_id"] = routineId,
+            ["user_id"] = userId
+        };
+
+        if (additionalMetadata != null)
+        {
+            metadata.Merge(additionalMetadata, new JsonMergeSettings
+            {
+                MergeArrayHandling = MergeArrayHandling.Replace,
+                MergeNullValueHandling = MergeNullValueHandling.Ignore
+            });
+        }
+
         JObject payload = new JObject
         {
-            ["metadata"] = new JObject
-            {
-                ["version"] = "v1",
-                ["timestamp"] = timestampIso,
-                ["source"] = "CiTIUS",
-                ["routine_id"] = routineId,
-                ["user_id"] = userId
-            },
+            ["metadata"] = metadata,
             ["exercise_event"] = new JObject
             {
                 ["event_type"] = eventType,
@@ -267,18 +371,134 @@ public class VrDrupalClient : MonoBehaviour
                 ["outcome"] = outcome,
                 ["timestamp"] = timestampIso
             },
-            ["movement_data"] = movementData != null
-                ? JObject.FromObject(movementData)
-                : new JObject()
+            ["movement_data"] = JObject.FromObject(movementData)
         };
 
         string url = CombineUrl(drupalBaseUrl, "/api/exercise");
         return await PostJsonAsync(url, payload, DrupalToken);
     }
 
+
+    private async Task SendExerciseResultForGameEventAsync(GameEvent gameEvent)
+    {
+        if (string.IsNullOrWhiteSpace(DrupalToken))
+        {
+            RaiseError("No se envía resultado a Drupal: el dispositivo todavía no está autorizado.");
+            return;
+        }
+
+        string userId = GetActiveUserId();
+        string routineId = GetActiveRoutineId();
+
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(routineId))
+        {
+            RaiseError("No se envía resultado a Drupal: falta user_id o routine_id.");
+            return;
+        }
+
+        try
+        {
+            DateTimeOffset timestamp = DateTimeOffset.UtcNow;
+            MovementData movementData = MovementData.FromPlayerTracker(playerTracker, gameEvent);
+            JObject additionalMetadata = BuildExerciseEventMetadata(gameEvent, timestamp);
+
+            await SendExerciseResultAsync(
+                routineId,
+                userId,
+                ToExerciseId(gameEvent),
+                ToExerciseOutcome(gameEvent),
+                movementData,
+                "game_event",
+                Guid.NewGuid().ToString(),
+                timestamp,
+                additionalMetadata);
+        }
+        catch (Exception ex)
+        {
+            RaiseError("Error enviando resultado real a Drupal: " + ex.Message);
+        }
+    }
+
+    private JObject BuildExerciseEventMetadata(GameEvent gameEvent, DateTimeOffset timestamp)
+    {
+        JObject metadata = new JObject
+        {
+            ["legacy_game_event"] = gameEvent.ToString(),
+            ["event_timestamp"] = timestamp.ToString("o")
+        };
+
+        if (sessionStartTime.HasValue)
+        {
+            metadata["session_start_time"] = sessionStartTime.Value.ToString("o");
+        }
+
+        IRoutineData routineData = routineManager != null ? routineManager.selectedRoutine : null;
+        if (routineData != null)
+        {
+            metadata["routine_flags"] = new JObject
+            {
+                ["allow_squat"] = routineData.allowSquat,
+                ["allow_movement"] = routineData.allowMovement,
+                ["allow_punch"] = routineData.allowPunch,
+                ["allow_cross_punch"] = routineData.allowCrossPunch,
+                ["routine_duration"] = routineData.routineDuration
+            };
+        }
+
+        if (scoreSystem != null)
+        {
+            metadata["score"] = new JObject
+            {
+                ["current_score"] = scoreSystem.score,
+                ["max_combo"] = scoreSystem.comboMax,
+                ["squat_success"] = scoreSystem.squatSuccess,
+                ["movement_success"] = scoreSystem.movementSuccess,
+                ["punch_success"] = scoreSystem.punchSuccess,
+                ["squat_total"] = scoreSystem.squatTotal,
+                ["movement_total"] = scoreSystem.movementTotal,
+                ["punch_total"] = scoreSystem.punchTotal
+            };
+        }
+
+        return metadata;
+    }
+
+    private string GetActiveUserId()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentSession.user_id))
+        {
+            return CurrentSession.user_id;
+        }
+
+        return userManager != null && userManager.activeUser != null
+            ? userManager.activeUser.identifier
+            : null;
+    }
+
+    private string GetActiveRoutineId()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentSession.routine_id))
+        {
+            return CurrentSession.routine_id;
+        }
+
+        if (routineManager == null || routineManager.selectedRoutine == null)
+        {
+            return null;
+        }
+
+        if (routineManager.selectedRoutine is RoutinePresets preset && !string.IsNullOrWhiteSpace(preset.identifier))
+        {
+            return preset.identifier;
+        }
+
+        return routineManager.selectedRoutine.GetType().Name;
+    }
+
     public async Task ConnectMqttAsync()
     {
         RequireAuthorized();
+        isDisconnecting = false;
 
         if (mqttClient != null && mqttClient.IsConnected)
         {
@@ -305,6 +525,12 @@ public class VrDrupalClient : MonoBehaviour
                 {
                     JObject json = JObject.Parse(payload);
                     ServerCommand command = json.ToObject<ServerCommand>();
+                    if (command == null)
+                    {
+                        RaiseError("Mensaje MQTT inválido: comando vacío.");
+                        return Task.CompletedTask;
+                    }
+
                     command.Raw = json;
                     EnqueueMainThread(() => HandleServerCommand(command));
                 }
@@ -321,7 +547,7 @@ public class VrDrupalClient : MonoBehaviour
         {
             Debug.Log("MQTT conectado.");
             await mqttClient.SubscribeAsync(GetCommandTopic(), MqttQualityOfServiceLevel.AtLeastOnce);
-            await PublishHeartbeatAsync("connected");
+            await PublishHeartbeatAsync("online");
         };
 
         mqttClient.DisconnectedAsync += args =>
@@ -362,19 +588,13 @@ public class VrDrupalClient : MonoBehaviour
 
         CommandReceived?.Invoke(command);
 
-        string action = command.action?.Trim().ToLowerInvariant();
-        string userId = command.user_id;
-        string routineId = command.routine_id;
+        string action = NormalizeCommandAction(command);
+        string userId = string.IsNullOrWhiteSpace(command.user_id) ? CurrentSession.user_id : command.user_id;
+        string routineId = string.IsNullOrWhiteSpace(command.routine_id) ? CurrentSession.routine_id : command.routine_id;
 
         switch (action)
         {
             case "start":
-                if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(routineId))
-                {
-                    RaiseError("Start ignorado: falta user_id o routine_id.");
-                    return;
-                }
-
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.user_id = userId;
@@ -384,33 +604,19 @@ public class VrDrupalClient : MonoBehaviour
                 break;
 
             case "pause":
-                if (CurrentSession.running)
-                {
-                    CurrentSession.paused = true;
-                    CurrentSession.last_action = "pause";
-                    PauseReceived?.Invoke(command);
-                }
+                CurrentSession.paused = true;
+                CurrentSession.last_action = "pause";
+                PauseReceived?.Invoke(command);
                 break;
 
             case "resume":
-                if (CurrentSession.running)
-                {
-                    CurrentSession.paused = false;
-                    CurrentSession.last_action = "resume";
-                    ResumeReceived?.Invoke(command);
-                }
+                CurrentSession.running = true;
+                CurrentSession.paused = false;
+                CurrentSession.last_action = "resume";
+                ResumeReceived?.Invoke(command);
                 break;
 
             case "reboot":
-                if (string.IsNullOrWhiteSpace(userId)) userId = CurrentSession.user_id;
-                if (string.IsNullOrWhiteSpace(routineId)) routineId = CurrentSession.routine_id;
-
-                if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(routineId))
-                {
-                    RaiseError("Reboot ignorado: falta user_id/routine_id y no hay sesión previa.");
-                    return;
-                }
-
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.user_id = userId;
@@ -427,14 +633,14 @@ public class VrDrupalClient : MonoBehaviour
                 break;
 
             default:
-                RaiseError("Acción MQTT desconocida: " + command.action);
+                RaiseError("Acción MQTT desconocida: status=" + command.status + ", action=" + command.action);
                 break;
         }
 
-        _ = PublishHeartbeatAsync("connected");
+        _ = PublishHeartbeatAsync("online");
     }
 
-    public async Task PublishHeartbeatAsync(string status = "connected")
+    public async Task PublishHeartbeatAsync(string status = "online")
     {
         if (mqttClient == null || !mqttClient.IsConnected)
         {
@@ -443,9 +649,8 @@ public class VrDrupalClient : MonoBehaviour
 
         JObject payload = new JObject
         {
-            ["device_id"] = DeviceId,
-            ["token"] = DrupalToken,
             ["status"] = status,
+            ["device_id"] = DeviceId,
             ["timestamp"] = DateTimeOffset.UtcNow.ToString("o"),
             ["session"] = JObject.FromObject(CurrentSession)
         };
@@ -473,7 +678,7 @@ public class VrDrupalClient : MonoBehaviour
             {
                 try
                 {
-                    await PublishHeartbeatAsync("connected");
+                    await PublishHeartbeatAsync("online");
                 }
                 catch (Exception ex)
                 {
@@ -504,6 +709,12 @@ public class VrDrupalClient : MonoBehaviour
 
     public async Task DisconnectAsync()
     {
+        if (isDisconnecting)
+        {
+            return;
+        }
+
+        isDisconnecting = true;
         StopHeartbeatLoop();
 
         try
@@ -523,6 +734,7 @@ public class VrDrupalClient : MonoBehaviour
         {
             mqttClient?.Dispose();
             mqttClient = null;
+            isDisconnecting = false;
         }
     }
 
@@ -654,6 +866,122 @@ public class VrDrupalClient : MonoBehaviour
         }
     }
 
+
+    private static bool IsExerciseResultEvent(GameEvent gameEvent)
+    {
+        switch (gameEvent)
+        {
+            case GameEvent.RIGHT_HIT_SUCCESS:
+            case GameEvent.RIGHT_HIT_FAILED:
+            case GameEvent.LEFT_HIT_SUCCESS:
+            case GameEvent.LEFT_HIT_FAILED:
+            case GameEvent.CROSS_RIGHT_HIT_SUCCESS:
+            case GameEvent.CROSS_RIGHT_HIT_FAILED:
+            case GameEvent.CROSS_LEFT_HIT_SUCCESS:
+            case GameEvent.CROSS_LEFT_HIT_FAILED:
+            case GameEvent.SQUAT_LEFT_SUCCESS:
+            case GameEvent.SQUAT_LEFT_FAILED:
+            case GameEvent.SQUAT_MID_SUCCESS:
+            case GameEvent.SQUAT_MID_FAILED:
+            case GameEvent.SQUAT_RIGHT_SUCCESS:
+            case GameEvent.SQUAT_RIGHT_FAILED:
+            case GameEvent.MOVEMENT_LEFT_SUCCESS:
+            case GameEvent.MOVEMENT_LEFT_FAILED:
+            case GameEvent.MOVEMENT_MID_SUCCESS:
+            case GameEvent.MOVEMENT_MID_FAILED:
+            case GameEvent.MOVEMENT_RIGHT_SUCCESS:
+            case GameEvent.MOVEMENT_RIGHT_FAILED:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static string ToExerciseOutcome(GameEvent gameEvent)
+    {
+        return gameEvent.ToString().EndsWith("_SUCCESS", StringComparison.Ordinal)
+            ? "success"
+            : "failure";
+    }
+
+    private static string ToExerciseId(GameEvent gameEvent)
+    {
+        string value = gameEvent.ToString().ToLowerInvariant();
+
+        if (value.EndsWith("_success", StringComparison.Ordinal))
+        {
+            value = value.Substring(0, value.Length - "_success".Length);
+        }
+        else if (value.EndsWith("_failed", StringComparison.Ordinal))
+        {
+            value = value.Substring(0, value.Length - "_failed".Length);
+        }
+
+        return value;
+    }
+
+    private static bool IsKnownOutcome(string outcome)
+    {
+        string value = outcome.Trim().ToLowerInvariant();
+        return value == "success" || value == "failure" || value == "missed";
+    }
+
+    private static string NormalizeCommandAction(ServerCommand command)
+    {
+        string status = command.status?.Trim().ToLowerInvariant();
+        string action = command.action?.Trim().ToLowerInvariant();
+
+        if (status == "execution" && action == "start") return "start";
+        if (status == "finished" && action == "stop") return "stop";
+        if (status == "execution" && action == "reboot") return "reboot";
+        if (status == "pause" && action == "pause") return "pause";
+        if (status == "execution" && action == "resume") return "resume";
+        if (status == "scheduled" && action == "stop") return "stop";
+
+        return action;
+    }
+
+    private void UpdateCurrentSessionFromPayload(JObject payload)
+    {
+        if (payload == null)
+        {
+            return;
+        }
+
+        string userId = FindFirstStringProperty(payload, "user_id");
+        string routineId = FindFirstStringProperty(payload, "routine_id");
+
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            CurrentSession.user_id = userId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(routineId))
+        {
+            CurrentSession.routine_id = routineId;
+        }
+    }
+
+    private static string FindFirstStringProperty(JToken token, string propertyName)
+    {
+        foreach (JToken descendant in token.DescendantsAndSelf())
+        {
+            if (descendant is JProperty property && string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                string value = property.Value?.Type == JTokenType.String
+                    ? property.Value.Value<string>()
+                    : property.Value?.ToString(Formatting.None);
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private void RaiseError(string message)
     {
         Debug.LogWarning(message);
@@ -694,6 +1022,7 @@ public class ServerCommand
 {
     public string user_id;
     public string routine_id;
+    public string status;
     public string action;
     public string timestamp;
 
@@ -715,21 +1044,59 @@ public class MovementData
     public string head_y;
     public string head_z;
 
+    public string game_event;
+    public string left_controller_distance;
+    public string right_controller_distance;
+    public string squat_height;
+    public string horizontal_movement;
+
     public static MovementData FromUnityPositions(Vector3 leftController, Vector3 rightController, Vector3 head)
     {
         return new MovementData
         {
-            left_controller_x = leftController.x.ToString("F4"),
-            left_controller_y = leftController.y.ToString("F4"),
-            left_controller_z = leftController.z.ToString("F4"),
+            left_controller_x = FormatFloat(leftController.x),
+            left_controller_y = FormatFloat(leftController.y),
+            left_controller_z = FormatFloat(leftController.z),
 
-            right_controller_x = rightController.x.ToString("F4"),
-            right_controller_y = rightController.y.ToString("F4"),
-            right_controller_z = rightController.z.ToString("F4"),
+            right_controller_x = FormatFloat(rightController.x),
+            right_controller_y = FormatFloat(rightController.y),
+            right_controller_z = FormatFloat(rightController.z),
 
-            head_x = head.x.ToString("F4"),
-            head_y = head.y.ToString("F4"),
-            head_z = head.z.ToString("F4")
+            head_x = FormatFloat(head.x),
+            head_y = FormatFloat(head.y),
+            head_z = FormatFloat(head.z)
         };
+    }
+
+    public static MovementData FromPlayerTracker(PlayerTracker tracker, GameEvent gameEvent)
+    {
+        MovementData data = tracker != null
+            ? FromUnityPositions(tracker.LControllerPosition, tracker.RControllerPosition, tracker.PlayerPosition)
+            : new MovementData();
+
+        data.game_event = gameEvent.ToString();
+
+        if (tracker != null)
+        {
+            data.left_controller_distance = FormatFloat(tracker.LeftHitDistance);
+            data.right_controller_distance = FormatFloat(tracker.RightHitDistance);
+            data.squat_height = FormatFloat(IsSquatSuccess(gameEvent) ? tracker.SquatMinHeight : tracker.CurrentSquatHeight);
+            data.horizontal_movement = FormatFloat(tracker.HorizontalMovement);
+            tracker.ResetTrackingData();
+        }
+
+        return data;
+    }
+
+    private static bool IsSquatSuccess(GameEvent gameEvent)
+    {
+        return gameEvent == GameEvent.SQUAT_LEFT_SUCCESS
+            || gameEvent == GameEvent.SQUAT_MID_SUCCESS
+            || gameEvent == GameEvent.SQUAT_RIGHT_SUCCESS;
+    }
+
+    private static string FormatFloat(float value)
+    {
+        return value.ToString("F4", CultureInfo.InvariantCulture);
     }
 }

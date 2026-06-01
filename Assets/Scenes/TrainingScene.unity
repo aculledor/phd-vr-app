@@ -27732,9 +27732,21 @@ MonoBehaviour:
   m_GameObject: {fileID: 1885841506}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 509ef773e52402447a671d036d92e59e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Script: {fileID: 11500000, guid: 7cbf83bd563745fdb5efcfdfd3f4e37a, type: 3}
+  m_Name: ''
+  m_EditorClassIdentifier: ''
+  drupalBaseUrl: https://rehabilitacion.app.citius.gal
+  allowInsecureCertificates: 0
+  mqttHost: rehabilitacion.app.citius.gal
+  mqttPort: 443
+  mqttWebSocketPath: /mqtt
+  mqttUseTls: 1
+  mqttUsername: vr_device
+  mqttPassword: 1234
+  mqttKeepAliveSeconds: 60
+  heartbeatIntervalSeconds: 30
+  connectOnStart: 1
+  sendExerciseEventsFromEventBus: 1
   userManager: {fileID: 1885841507}
   scoreSystem: {fileID: 501089794}
   routineManager: {fileID: 1885841508}
