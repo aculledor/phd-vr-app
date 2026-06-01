@@ -24,7 +24,7 @@ namespace Oculus.Platform.Samples.VrHoops
 
 		public Vector3 velocity
 		{
-			get { return rigidBody.velocity; }
+			get { return rigidBody.linearVelocity; }
 		}
 
 		public bool IsHeld()
@@ -49,7 +49,7 @@ namespace Oculus.Platform.Samples.VrHoops
 				// should be done over few timesteps.
 				float deltaT = Time.realtimeSinceStartup - remoteTime;
 				transform.localPosition = estimatePosition(pos, vel, deltaT);
-				rigidBody.velocity = estimateVelocity(vel, deltaT);
+				rigidBody.linearVelocity = estimateVelocity(vel, deltaT);
 
 				// if the ball is transitioning from held to ballistic, we need to
 				// update the RigidBody parameters
@@ -70,7 +70,7 @@ namespace Oculus.Platform.Samples.VrHoops
 		// Estimates the new velocity assuming ballistic motion and drag.
 		private Vector3 estimateVelocity(Vector3 startVelocity, float time)
 		{
-			return startVelocity + Physics.gravity * time * Mathf.Clamp01 (1 - rigidBody.drag * time);
+			return startVelocity + Physics.gravity * time * Mathf.Clamp01 (1 - rigidBody.linearDamping * time);
 		}
 
 		void OnCollisionEnter(Collision collision)
