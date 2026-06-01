@@ -52,8 +52,11 @@ public class ObstacleSpawner : MonoBehaviour
     private bool isSpawning;
 
 
-    public OVRScreenFade screenFade;
-    
+    [SerializeField]
+    private CanvasGroup screenFadeCanvas;
+    [SerializeField]
+    private float screenFadeTime = 1.0f;
+
     [NonSerialized]
     public float timeDifference;
 
@@ -314,9 +317,7 @@ public class ObstacleSpawner : MonoBehaviour
         {
             StopCoroutine(spawnCoroutine);
         }
-        this.screenFade.FadeOut();
-
-        yield return new WaitForSeconds(screenFade.fadeTime);
+        yield return FadeScreen(1.0f);
 
         ClearSpawnedObstacles();
         isSpawning = false;
@@ -325,8 +326,37 @@ public class ObstacleSpawner : MonoBehaviour
 
         EventBus.PublishEvent(GameEvent.END_REHAB);
         routineManager.handleEnd();
-        this.screenFade.FadeIn();
+        yield return FadeScreen(0.0f);
     }
+    private IEnumerator FadeScreen(float targetAlpha)
+    {
+        if (screenFadeCanvas == null)
+        {
+            Debug.LogWarning("ObstacleSpawner no tiene screenFadeCanvas asignado. Se omite el fundido de pantalla.", this);
+            yield break;
+        }
+
+        float fadeDuration = Mathf.Max(0.0f, screenFadeTime);
+
+        if (fadeDuration <= 0.0f)
+        {
+            screenFadeCanvas.alpha = targetAlpha;
+            yield break;
+        }
+
+        float startAlpha = screenFadeCanvas.alpha;
+        float elapsed = 0.0f;
+
+        while (elapsed < fadeDuration)
+        {
+            elapsed += Time.deltaTime;
+            screenFadeCanvas.alpha = Mathf.Lerp(startAlpha, targetAlpha, elapsed / fadeDuration);
+            yield return null;
+        }
+
+        screenFadeCanvas.alpha = targetAlpha;
+    }
+
 }
 
 [System.Serializable]
