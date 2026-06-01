@@ -410,8 +410,8 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             ["version"] = "v1",
             ["timestamp"] = timestampIso,
             ["source"] = "CiTIUS",
-            ["routine_id"] = routineId,
-            ["user_id"] = userId
+            ["routine_id"] = ToIdToken(routineId),
+            ["user_id"] = ToIdToken(userId)
         };
 
         if (additionalMetadata != null)
@@ -430,15 +430,64 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             {
                 ["event_type"] = eventType,
                 ["event_id"] = string.IsNullOrWhiteSpace(eventId) ? Guid.NewGuid().ToString() : eventId,
-                ["exercise_id"] = exerciseId,
+                ["exercise_id"] = ToIdToken(exerciseId),
                 ["outcome"] = outcome,
                 ["timestamp"] = timestampIso
             },
-            ["movement_data"] = JObject.FromObject(movementData)
+            ["movement_data"] = MovementDataToJson(movementData)
         };
+
+        Debug.Log("POST /api/exercise payload: " + payload.ToString(Formatting.None));
 
         string url = CombineUrl(drupalBaseUrl, "/api/exercise");
         return await PostJsonAsync(url, payload, DrupalToken);
+    }
+
+
+    private static JToken ToIdToken(string value)
+    {
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long numericId))
+        {
+            return new JValue(numericId);
+        }
+
+        return value;
+    }
+
+    private static JObject MovementDataToJson(MovementData movementData)
+    {
+        return new JObject
+        {
+            ["left_controller_x"] = ToNumberToken(movementData.left_controller_x),
+            ["left_controller_y"] = ToNumberToken(movementData.left_controller_y),
+            ["left_controller_z"] = ToNumberToken(movementData.left_controller_z),
+            ["right_controller_x"] = ToNumberToken(movementData.right_controller_x),
+            ["right_controller_y"] = ToNumberToken(movementData.right_controller_y),
+            ["right_controller_z"] = ToNumberToken(movementData.right_controller_z),
+            ["head_x"] = ToNumberToken(movementData.head_x),
+            ["head_y"] = ToNumberToken(movementData.head_y),
+            ["head_z"] = ToNumberToken(movementData.head_z),
+            ["game_event"] = movementData.game_event,
+            ["left_controller_distance"] = ToNumberToken(movementData.left_controller_distance),
+            ["right_controller_distance"] = ToNumberToken(movementData.right_controller_distance),
+            ["squat_height"] = ToNumberToken(movementData.squat_height),
+            ["horizontal_movement"] = ToNumberToken(movementData.horizontal_movement)
+        };
+    }
+
+    private static JToken ToNumberToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return JValue.CreateNull();
+        }
+
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+        {
+            return new JValue(number);
+        }
+
+        return value;
     }
 
 
@@ -446,7 +495,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     {
         if (string.IsNullOrWhiteSpace(DrupalToken))
         {
-            RaiseError("No se envía resultado a Drupal: el dispositivo todavía no está autorizado.");
+            Debug.LogWarning("No se envía resultado a Drupal: el dispositivo todavía no está autorizado.");
             return;
         }
 
@@ -455,7 +504,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
 
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(routineId))
         {
-            RaiseError("No se envía resultado a Drupal: falta user_id o routine_id.");
+            Debug.LogWarning("No se envía resultado a Drupal: falta user_id o routine_id.");
             return;
         }
 
@@ -474,14 +523,14 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 exerciseId,
                 ToExerciseOutcome(gameEvent),
                 movementData,
-                "game_event",
+                "execution",
                 Guid.NewGuid().ToString(),
                 timestamp,
                 additionalMetadata);
         }
         catch (Exception ex)
         {
-            RaiseError("Error enviando resultado real a Drupal: " + ex.Message);
+            Debug.LogWarning("Error enviando resultado real a Drupal: " + ex.Message);
         }
     }
 
