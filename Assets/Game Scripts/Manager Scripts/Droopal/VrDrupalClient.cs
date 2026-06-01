@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -201,7 +202,26 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 await RegisterDeviceAsync();
             }
 
-            await AuthorizeDeviceAsync();
+            try
+            {
+                await AuthorizeDeviceAsync();
+            }
+            catch (Exception ex)
+            {
+                if (ex.Message.Contains("Invalid device credentials") || ex.Message.Contains("403"))
+                {
+                    Debug.LogError(
+                        "Las credenciales guardadas no son válidas para Drupal. " +
+                        "No se registra automáticamente porque el dispositivo puede estar ya claimed. " +
+                        "Borra las credenciales locales y crea/resetea un dispositivo nuevo en Drupal."
+                    );
+
+                    throw;
+                }
+
+                throw;
+            }
+
             await GetGlassSessionsAsync();
             await ConnectMqttAsync();
         }
@@ -229,6 +249,9 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     {
         DeviceId = PlayerPrefs.GetString(DeviceIdPrefKey, null);
         DeviceSecret = PlayerPrefs.GetString(DeviceSecretPrefKey, null);
+
+        Debug.Log("Credenciales cargadas. DeviceId=" + DeviceId + 
+                " Secret existe=" + !string.IsNullOrWhiteSpace(DeviceSecret));
     }
 
     private void SaveCredentials(string deviceId, string secret)
@@ -239,6 +262,9 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         PlayerPrefs.SetString(DeviceIdPrefKey, DeviceId);
         PlayerPrefs.SetString(DeviceSecretPrefKey, DeviceSecret);
         PlayerPrefs.Save();
+
+        Debug.Log("Credenciales guardadas. DeviceId=" + DeviceId + 
+                " Secret existe=" + !string.IsNullOrWhiteSpace(DeviceSecret));
     }
 
     /// <summary>
@@ -250,7 +276,26 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     public async Task RegisterDeviceAsync()
     {
         string url = CombineUrl(drupalBaseUrl, "/api/glass/register");
-        JObject response = await PostJsonAsync(url, new JObject());
+
+        JObject response;
+
+        try
+        {
+            response = await PostJsonAsync(url, new JObject());
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("Device ID is already claimed") || ex.Message.Contains("already claimed"))
+            {
+                throw new InvalidOperationException(
+                    "Drupal dice que este Device ID ya está reclamado. " +
+                    "Borra/resetéalo en Drupal o crea un dispositivo nuevo antes de volver a registrar desde Unity.",
+                    ex
+                );
+            }
+
+            throw;
+        }
 
         string id = response.Value<string>("id");
         string secret = response.Value<string>("secret");
@@ -284,6 +329,9 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             ["secret"] = DeviceSecret
         };
 
+        Debug.Log("Autorizando DeviceId=" + DeviceId + 
+          " Secret existe=" + !string.IsNullOrWhiteSpace(DeviceSecret));
+
         JObject response = await PostJsonAsync(url, body);
         string token = response.Value<string>("token");
 
@@ -306,10 +354,25 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         RequireAuthorized();
 
         string url = CombineUrl(drupalBaseUrl, "/api/glass") + "?id=" + UnityWebRequest.EscapeURL(DeviceId);
+
+        Debug.Log("Solicitando sesiones/rutinas a Drupal: " + url);
+
         SessionsPayload = await GetJsonAsync(url, DrupalToken);
+
+        Debug.Log("Sesiones/rutinas recibidas desde Drupal:");
+        Debug.Log(SessionsPayload.ToString(Formatting.Indented));
+
         UpdateCurrentSessionFromPayload(SessionsPayload);
 
+        Debug.Log(
+            "Sesión actual detectada. user_id=" + CurrentSession.user_id +
+            " routine_id=" + CurrentSession.routine_id +
+            " running=" + CurrentSession.running +
+            " paused=" + CurrentSession.paused
+        );
+
         EnqueueMainThread(() => SessionsReceived?.Invoke(SessionsPayload));
+
         return SessionsPayload;
     }
 
@@ -519,12 +582,23 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             string topic = args.ApplicationMessage.Topic;
             string payload = Encoding.UTF8.GetString(args.ApplicationMessage.PayloadSegment);
 
+            Debug.Log("MQTT mensaje recibido.");
+            Debug.Log("Topic: " + topic);
+            Debug.Log("Payload: " + payload);
+
             if (topic == GetCommandTopic())
             {
                 try
                 {
+                    Debug.Log("Orden recibida desde Drupal en topic de comandos: " + GetCommandTopic());
+
                     JObject json = JObject.Parse(payload);
+
+                    Debug.Log("Orden JSON parseada:");
+                    Debug.Log(json.ToString(Formatting.Indented));
+
                     ServerCommand command = json.ToObject<ServerCommand>();
+
                     if (command == null)
                     {
                         RaiseError("Mensaje MQTT inválido: comando vacío.");
@@ -532,12 +606,26 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                     }
 
                     command.Raw = json;
+
+                    Debug.Log(
+                        "Comando recibido. " +
+                        "status=" + command.status +
+                        ", action=" + command.action +
+                        ", user_id=" + command.user_id +
+                        ", routine_id=" + command.routine_id +
+                        ", timestamp=" + command.timestamp
+                    );
+
                     EnqueueMainThread(() => HandleServerCommand(command));
                 }
                 catch (Exception ex)
                 {
                     RaiseError("Mensaje MQTT inválido: " + ex.Message);
                 }
+            }
+            else
+            {
+                Debug.Log("Mensaje MQTT ignorado porque no pertenece al topic de comandos esperado: " + GetCommandTopic());
             }
 
             return Task.CompletedTask;
@@ -546,7 +634,15 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         mqttClient.ConnectedAsync += async args =>
         {
             Debug.Log("MQTT conectado.");
-            await mqttClient.SubscribeAsync(GetCommandTopic(), MqttQualityOfServiceLevel.AtLeastOnce);
+
+            string commandTopic = GetCommandTopic();
+
+            Debug.Log("Suscribiéndose a topic de comandos: " + commandTopic);
+
+            await mqttClient.SubscribeAsync(commandTopic, MqttQualityOfServiceLevel.AtLeastOnce);
+
+            Debug.Log("Suscripción MQTT completada: " + commandTopic);
+
             await PublishHeartbeatAsync("online");
         };
 
@@ -583,8 +679,11 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     {
         if (command == null)
         {
+            Debug.LogWarning("HandleServerCommand llamado con command null.");
             return;
         }
+
+        Debug.Log("Procesando orden del servidor Drupal.");
 
         CommandReceived?.Invoke(command);
 
@@ -592,9 +691,18 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         string userId = string.IsNullOrWhiteSpace(command.user_id) ? CurrentSession.user_id : command.user_id;
         string routineId = string.IsNullOrWhiteSpace(command.routine_id) ? CurrentSession.routine_id : command.routine_id;
 
+        Debug.Log(
+            "Orden normalizada: " + action +
+            ". user_id=" + userId +
+            ", routine_id=" + routineId +
+            ", status_original=" + command.status +
+            ", action_original=" + command.action
+        );
+
         switch (action)
         {
             case "start":
+                Debug.Log("Orden START recibida: iniciar rutina VR.");
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.user_id = userId;
@@ -604,12 +712,14 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 break;
 
             case "pause":
+                Debug.Log("Orden PAUSE recibida: pausar rutina VR.");
                 CurrentSession.paused = true;
                 CurrentSession.last_action = "pause";
                 PauseReceived?.Invoke(command);
                 break;
 
             case "resume":
+                Debug.Log("Orden RESUME recibida: reanudar rutina VR.");
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.last_action = "resume";
@@ -617,6 +727,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 break;
 
             case "reboot":
+                Debug.Log("Orden REBOOT recibida: reiniciar rutina VR.");
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.user_id = userId;
@@ -626,11 +737,12 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 break;
 
             case "stop":
+                Debug.Log("Orden STOP recibida: detener rutina VR.");
                 CurrentSession.running = false;
                 CurrentSession.paused = false;
                 CurrentSession.last_action = "stop";
                 StopReceived?.Invoke(command);
-                break;
+    break;
 
             default:
                 RaiseError("Acción MQTT desconocida: status=" + command.status + ", action=" + command.action);
@@ -654,6 +766,8 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             ["timestamp"] = DateTimeOffset.UtcNow.ToString("o"),
             ["session"] = JObject.FromObject(CurrentSession)
         };
+
+        Debug.Log("Publicando heartbeat MQTT en " + GetStatusTopic() + ": " + payload.ToString(Formatting.None));
 
         MqttApplicationMessage message = new MqttApplicationMessageBuilder()
             .WithTopic(GetStatusTopic())
@@ -945,6 +1059,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     {
         if (payload == null)
         {
+            Debug.LogWarning("No se puede actualizar CurrentSession: payload de sesiones vacío.");
             return;
         }
 
@@ -955,18 +1070,32 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         {
             CurrentSession.user_id = userId;
         }
+        else
+        {
+            Debug.LogWarning("No se encontró user_id en la respuesta de /api/glass.");
+        }
 
         if (!string.IsNullOrWhiteSpace(routineId))
         {
             CurrentSession.routine_id = routineId;
         }
+        else
+        {
+            Debug.LogWarning("No se encontró routine_id en la respuesta de /api/glass.");
+        }
+
+        Debug.Log(
+            "CurrentSession actualizada desde /api/glass: user_id=" + CurrentSession.user_id +
+            ", routine_id=" + CurrentSession.routine_id
+        );
     }
 
     private static string FindFirstStringProperty(JToken token, string propertyName)
     {
-        foreach (JToken descendant in token.DescendantsAndSelf())
+        foreach (JToken descendant in GetDescendantsAndSelfSafe(token))
         {
-            if (descendant is JProperty property && string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            if (descendant is JProperty property &&
+                string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
             {
                 string value = property.Value?.Type == JTokenType.String
                     ? property.Value.Value<string>()
@@ -980,6 +1109,31 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         }
 
         return null;
+    }
+
+    private static IEnumerable<JToken> GetDescendantsAndSelfSafe(JToken token)
+    {
+        if (token == null)
+        {
+            yield break;
+        }
+
+        yield return token;
+
+        JContainer container = token as JContainer;
+
+        if (container == null)
+        {
+            yield break;
+        }
+
+        foreach (JToken child in container.Children())
+        {
+            foreach (JToken descendant in GetDescendantsAndSelfSafe(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     private void RaiseError(string message)
