@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using System;
 using TMPro;
 
@@ -18,6 +17,7 @@ public class RoutineManager : MonoBehaviour
     private RoutinePresets defaultRoutine;
 
     public float minGuardianWidth;
+    private bool pausedByServer;
 
     private void Start()
     {
@@ -45,6 +45,50 @@ public class RoutineManager : MonoBehaviour
         {
             UIManager.Instance.SwitchDialogue("no-space-custom");
         }
+    }
+
+
+    public void SetActiveServerRoutine(ServerRoutineData serverRoutine)
+    {
+        if (serverRoutine == null)
+        {
+            Debug.LogWarning("No se puede seleccionar una rutina remota nula.");
+            return;
+        }
+
+        selectedRoutine = serverRoutine;
+    }
+
+    public void StartSelectedRoutineFromServer()
+    {
+        if (selectedRoutine == null)
+        {
+            Debug.LogWarning("El servidor pidió iniciar, pero no hay una rutina cargada.");
+            return;
+        }
+
+        pausedByServer = false;
+        Time.timeScale = 1.0f;
+        StartCoroutine(InitRoutine());
+    }
+
+    public void PauseRoutineFromServer()
+    {
+        pausedByServer = true;
+        Time.timeScale = 0.0f;
+    }
+
+    public void ResumeRoutineFromServer()
+    {
+        pausedByServer = false;
+        Time.timeScale = 1.0f;
+    }
+
+    public void StopRoutineFromServer(bool showResults = true)
+    {
+        pausedByServer = false;
+        Time.timeScale = 1.0f;
+        obstacleSpawner.StopSpawning(true, showResults);
     }
 
     private IEnumerator InitRoutine()
@@ -84,7 +128,7 @@ public class RoutineManager : MonoBehaviour
         {
             Time.timeScale = 0.0f;
         }
-        else
+        else if (!pausedByServer)
         {
             Time.timeScale = 1.0f;
         }
