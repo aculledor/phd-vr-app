@@ -1,5 +1,7 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.XR;
 
 public class RoutineManager : MonoBehaviour
 {
@@ -36,14 +38,53 @@ public class RoutineManager : MonoBehaviour
             return;
         }
 
-        if (selectedRoutine.allowMovement && OVRManager.boundary != null
-            && OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea).x < minGuardianWidth)
+        if (selectedRoutine.allowMovement && !HasEnoughPlayAreaWidth())
         {
             Debug.LogWarning("No hay espacio suficiente para iniciar una rutina con movimiento lateral.");
             return;
         }
 
         StartRoutineAfterPreparation();
+    }
+
+    private bool HasEnoughPlayAreaWidth()
+    {
+        if (minGuardianWidth <= 0.0f)
+        {
+            return true;
+        }
+
+        List<XRInputSubsystem> inputSubsystems = new List<XRInputSubsystem>();
+        SubsystemManager.GetInstances(inputSubsystems);
+
+        foreach (XRInputSubsystem inputSubsystem in inputSubsystems)
+        {
+            if (inputSubsystem == null || !inputSubsystem.running)
+            {
+                continue;
+            }
+
+            List<Vector3> boundaryPoints = new List<Vector3>();
+
+            if (!inputSubsystem.TryGetBoundaryPoints(boundaryPoints) || boundaryPoints.Count == 0)
+            {
+                continue;
+            }
+
+            float minX = boundaryPoints[0].x;
+            float maxX = boundaryPoints[0].x;
+
+            for (int i = 1; i < boundaryPoints.Count; i++)
+            {
+                minX = Mathf.Min(minX, boundaryPoints[i].x);
+                maxX = Mathf.Max(maxX, boundaryPoints[i].x);
+            }
+
+            return maxX - minX >= minGuardianWidth;
+        }
+
+        Debug.LogWarning("No se pudo leer el área de juego desde OpenXR. Se permite iniciar la rutina, pero revisa la configuración del espacio si hay ejercicios laterales.", this);
+        return true;
     }
 
 

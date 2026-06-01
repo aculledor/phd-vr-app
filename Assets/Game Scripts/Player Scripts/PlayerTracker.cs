@@ -1,10 +1,13 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.XR;
 public class PlayerTracker : Subject
 {
-    //Player Transforms
+    [SerializeField]
+    private AutoHandPlayerTracker bodyTracker;
+
+    // Optional fallback transforms kept to support existing scenes while they are migrated
+    // to assign the AutoHandPlayerTracker reference directly.
     public Transform player;
     public Transform leftController;
     public Transform rightController;
@@ -32,6 +35,7 @@ public class PlayerTracker : Subject
     private void Start()
     {
         minHeight = 0.0f;
+        ValidateTrackingConfiguration();
         EventBus.Subscribe(ResetTrackingData, GameEvent.START_REHAB);
         EventBus.Subscribe(EnableStanding, GameEvent.START_REHAB);
         //userManager.Register(this);
@@ -49,19 +53,39 @@ public class PlayerTracker : Subject
         standing = true;
     }
 
+    public AutoHandPlayerTracker BodyTracker
+    {
+        get { return bodyTracker; }
+    }
+
     public Vector3 PlayerPosition
     {
-        get { return player.position; }
+        get { return GetRequiredTransform(TrackedBodyPart.Head).position; }
     }
 
     public Vector3 LControllerPosition
     {
-        get { return leftController.position; }
+        get { return GetRequiredTransform(TrackedBodyPart.LeftHand).position; }
     }
 
     public Vector3 RControllerPosition
     {
-        get { return rightController.position; }
+        get { return GetRequiredTransform(TrackedBodyPart.RightHand).position; }
+    }
+
+    public Quaternion HeadRotation
+    {
+        get { return GetRequiredTransform(TrackedBodyPart.Head).rotation; }
+    }
+
+    public Quaternion LeftHandRotation
+    {
+        get { return GetRequiredTransform(TrackedBodyPart.LeftHand).rotation; }
+    }
+
+    public Quaternion RightHandRotation
+    {
+        get { return GetRequiredTransform(TrackedBodyPart.RightHand).rotation; }
     }
 
     public float LeftHitDistance
@@ -130,14 +154,21 @@ public class PlayerTracker : Subject
             minHeight = PlayerPosition.y;
         }
 
+        Transform headTransform = GetOptionalHeadTransform();
+
+        if (headTransform == null)
+        {
+            return;
+        }
+
         if (Input.GetKeyDown(KeyCode.DownArrow)) {
-            player.position = new Vector3(0, 0.5f, 3);
+            headTransform.position = new Vector3(0, 0.5f, 3);
         } else if (Input.GetKeyDown(KeyCode.UpArrow)) {
-            player.position = new Vector3(0, 1.5f, 3);
+            headTransform.position = new Vector3(0, 1.5f, 3);
         } else if (Input.GetKeyDown(KeyCode.RightArrow)) {
-            player.position = new Vector3(-1.285f, 1.5f, 3);
+            headTransform.position = new Vector3(-1.285f, 1.5f, 3);
         } else if (Input.GetKeyDown(KeyCode.LeftArrow)) {
-            player.position = new Vector3(+1.285f, 1.5f, 3);
+            headTransform.position = new Vector3(+1.285f, 1.5f, 3);
         }
 
     }
@@ -154,4 +185,106 @@ public class PlayerTracker : Subject
         this.standing = false;
         this.NotifyObservers();
     }
+    private enum TrackedBodyPart
+    {
+        Head,
+        LeftHand,
+        RightHand
+    }
+
+    private bool ValidateTrackingConfiguration()
+    {
+        bool valid = true;
+
+        if (bodyTracker != null)
+        {
+            valid &= bodyTracker.ValidateConfiguration();
+        }
+
+        if (GetTransform(TrackedBodyPart.Head) == null)
+        {
+            Debug.LogError("PlayerTracker no tiene tracking de cabeza configurado. Asigna un AutoHandPlayerTracker con headTransform o el campo legacy player.", this);
+            valid = false;
+        }
+
+        if (GetTransform(TrackedBodyPart.LeftHand) == null)
+        {
+            Debug.LogError("PlayerTracker no tiene tracking de mano izquierda configurado. Asigna un AutoHandPlayerTracker con leftHandTransform o el campo legacy leftController.", this);
+            valid = false;
+        }
+
+        if (GetTransform(TrackedBodyPart.RightHand) == null)
+        {
+            Debug.LogError("PlayerTracker no tiene tracking de mano derecha configurado. Asigna un AutoHandPlayerTracker con rightHandTransform o el campo legacy rightController.", this);
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private Transform GetRequiredTransform(TrackedBodyPart bodyPart)
+    {
+        Transform trackedTransform = GetTransform(bodyPart);
+
+        if (trackedTransform != null)
+        {
+            return trackedTransform;
+        }
+
+        ValidateTrackingConfiguration();
+        return transform;
+    }
+
+    private Transform GetOptionalHeadTransform()
+    {
+        Transform headTransform = GetTransform(TrackedBodyPart.Head);
+
+        if (headTransform == null)
+        {
+            Debug.LogError("PlayerTracker no puede actualizar la posición de depuración porque falta el headTransform.", this);
+        }
+
+        return headTransform;
+    }
+
+    private Transform GetTransform(TrackedBodyPart bodyPart)
+    {
+        if (bodyTracker != null)
+        {
+            switch (bodyPart)
+            {
+                case TrackedBodyPart.Head:
+                    if (bodyTracker.headTransform != null)
+                    {
+                        return bodyTracker.headTransform;
+                    }
+                    break;
+                case TrackedBodyPart.LeftHand:
+                    if (bodyTracker.leftHandTransform != null)
+                    {
+                        return bodyTracker.leftHandTransform;
+                    }
+                    break;
+                case TrackedBodyPart.RightHand:
+                    if (bodyTracker.rightHandTransform != null)
+                    {
+                        return bodyTracker.rightHandTransform;
+                    }
+                    break;
+            }
+        }
+
+        switch (bodyPart)
+        {
+            case TrackedBodyPart.Head:
+                return player;
+            case TrackedBodyPart.LeftHand:
+                return leftController;
+            case TrackedBodyPart.RightHand:
+                return rightController;
+            default:
+                return null;
+        }
+    }
+
 }
