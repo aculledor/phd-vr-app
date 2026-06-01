@@ -19167,10 +19167,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ServerSessionGameFlowController
   drupalClient: {fileID: 1885841511}
   routineManager: {fileID: 1885841508}
-  connectingWindow: {fileID: 0}
-  statusText: {fileID: 0}
-  objectsToHideWhileConnecting: []
-  objectsToShowWhenExerciseStarts: []
+  connectingWindow: {fileID: 1583269201}
+  statusText: {fileID: 924912180}
+  objectsToHideWhileConnecting:
+  - {fileID: 924875420}
+  objectsToShowWhenExerciseStarts:
+  - {fileID: 924875420}
 --- !u!4 &1327853407
 Transform:
   m_ObjectHideFlags: 0
@@ -22451,7 +22453,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1583269202
 RectTransform:
   m_ObjectHideFlags: 0
@@ -27945,7 +27947,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1885841506}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 69920aeb8a1f66e4d83577f8c8709850, type: 3}
   m_Name: 

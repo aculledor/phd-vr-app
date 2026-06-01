@@ -403,25 +403,21 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         if (movementData == null) throw new ArgumentNullException(nameof(movementData), "movementData debe contener datos reales del ejercicio.");
 
         DateTimeOffset ts = timestamp ?? DateTimeOffset.UtcNow;
-        string timestampIso = ts.ToString("o");
+
+        string metadataTimestamp = ts.ToString("o", CultureInfo.InvariantCulture);
+
+        // Drupal DateTime field espera formato: Y-m-d\TH:i:s
+        // Ejemplo: 2026-06-01T06:24:00
+        string exerciseTimestamp = ts.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
 
         JObject metadata = new JObject
         {
             ["version"] = "v1",
-            ["timestamp"] = timestampIso,
+            ["timestamp"] = metadataTimestamp,
             ["source"] = "CiTIUS",
-            ["routine_id"] = ToIdToken(routineId),
-            ["user_id"] = ToIdToken(userId)
+            ["routine_id"] = routineId,
+            ["user_id"] = userId
         };
-
-        if (additionalMetadata != null)
-        {
-            metadata.Merge(additionalMetadata, new JsonMergeSettings
-            {
-                MergeArrayHandling = MergeArrayHandling.Replace,
-                MergeNullValueHandling = MergeNullValueHandling.Ignore
-            });
-        }
 
         JObject payload = new JObject
         {
@@ -430,9 +426,9 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             {
                 ["event_type"] = eventType,
                 ["event_id"] = string.IsNullOrWhiteSpace(eventId) ? Guid.NewGuid().ToString() : eventId,
-                ["exercise_id"] = ToIdToken(exerciseId),
+                ["exercise_id"] = exerciseId,
                 ["outcome"] = outcome,
-                ["timestamp"] = timestampIso
+                ["timestamp"] = exerciseTimestamp
             },
             ["movement_data"] = MovementDataToJson(movementData)
         };
@@ -443,51 +439,27 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         return await PostJsonAsync(url, payload, DrupalToken);
     }
 
-
-    private static JToken ToIdToken(string value)
-    {
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long numericId))
-        {
-            return new JValue(numericId);
-        }
-
-        return value;
-    }
-
     private static JObject MovementDataToJson(MovementData movementData)
     {
         return new JObject
         {
-            ["left_controller_x"] = ToNumberToken(movementData.left_controller_x),
-            ["left_controller_y"] = ToNumberToken(movementData.left_controller_y),
-            ["left_controller_z"] = ToNumberToken(movementData.left_controller_z),
-            ["right_controller_x"] = ToNumberToken(movementData.right_controller_x),
-            ["right_controller_y"] = ToNumberToken(movementData.right_controller_y),
-            ["right_controller_z"] = ToNumberToken(movementData.right_controller_z),
-            ["head_x"] = ToNumberToken(movementData.head_x),
-            ["head_y"] = ToNumberToken(movementData.head_y),
-            ["head_z"] = ToNumberToken(movementData.head_z),
-            ["game_event"] = movementData.game_event,
-            ["left_controller_distance"] = ToNumberToken(movementData.left_controller_distance),
-            ["right_controller_distance"] = ToNumberToken(movementData.right_controller_distance),
-            ["squat_height"] = ToNumberToken(movementData.squat_height),
-            ["horizontal_movement"] = ToNumberToken(movementData.horizontal_movement)
+            ["left_controller_x"] = SafeString(movementData.left_controller_x),
+            ["left_controller_y"] = SafeString(movementData.left_controller_y),
+            ["left_controller_z"] = SafeString(movementData.left_controller_z),
+
+            ["right_controller_x"] = SafeString(movementData.right_controller_x),
+            ["right_controller_y"] = SafeString(movementData.right_controller_y),
+            ["right_controller_z"] = SafeString(movementData.right_controller_z),
+
+            ["head_x"] = SafeString(movementData.head_x),
+            ["head_y"] = SafeString(movementData.head_y),
+            ["head_z"] = SafeString(movementData.head_z)
         };
     }
 
-    private static JToken ToNumberToken(string value)
+    private static string SafeString(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return JValue.CreateNull();
-        }
-
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
-        {
-            return new JValue(number);
-        }
-
-        return value;
+        return string.IsNullOrWhiteSpace(value) ? "0" : value;
     }
 
 
@@ -512,7 +484,6 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         {
             DateTimeOffset timestamp = DateTimeOffset.UtcNow;
             MovementData movementData = MovementData.FromPlayerTracker(playerTracker, gameEvent);
-            JObject additionalMetadata = BuildExerciseEventMetadata(gameEvent, timestamp, exerciseItem);
             string exerciseId = GetExerciseIdForEvent(gameEvent, exerciseItem);
 
             Debug.Log("Enviando medición de ejercicio a Drupal. exercise_id=" + exerciseId + ", event=" + gameEvent);
@@ -526,7 +497,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 "execution",
                 Guid.NewGuid().ToString(),
                 timestamp,
-                additionalMetadata);
+                null);
         }
         catch (Exception ex)
         {
