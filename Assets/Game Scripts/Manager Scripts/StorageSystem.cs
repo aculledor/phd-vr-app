@@ -9,31 +9,81 @@ public class StorageSystem
 {
     public static void SaveUsers(List<UserData> userDataList)
     {
-        BinaryFormatter binaryFormatter = new BinaryFormatter();
-
         string path = Application.persistentDataPath + "/user_data.bin";
-        FileStream stream = new FileStream(path, FileMode.Create);
 
-        binaryFormatter.Serialize(stream, userDataList);
-        stream.Close();
+        try
+        {
+            BinaryFormatter binaryFormatter = new BinaryFormatter();
+
+            using (FileStream stream = new FileStream(path, FileMode.Create, FileAccess.Write))
+            {
+                binaryFormatter.Serialize(stream, userDataList);
+            }
+
+            Debug.Log($"Usuarios guardados correctamente: {userDataList.Count} en {path}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error guardando usuarios en {path}: {e.Message}");
+        }
     }
 
     public static bool LoadUsers(out List<UserData> list)
-    {  
-
+    {
         string path = Application.persistentDataPath + "/user_data.bin";
-        if (File.Exists(path))
-        {
-            BinaryFormatter binaryFormatter = new BinaryFormatter();
-            FileStream stream = new FileStream(path, FileMode.Open);
 
-            list = binaryFormatter.Deserialize(stream) as List<UserData>;
-            stream.Close();
-            return true;
+        list = new List<UserData>();
+
+        if (!File.Exists(path))
+        {
+            Debug.LogWarning($"No existe archivo de usuarios en: {path}");
+            return false;
         }
 
-        list = null;
-        return false;
+        FileInfo fileInfo = new FileInfo(path);
+
+        if (fileInfo.Length == 0)
+        {
+            Debug.LogWarning($"El archivo de usuarios existe pero está vacío. Se borra: {path}");
+            File.Delete(path);
+            return false;
+        }
+
+        try
+        {
+            BinaryFormatter binaryFormatter = new BinaryFormatter();
+
+            using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read))
+            {
+                object data = binaryFormatter.Deserialize(stream);
+
+                if (data is List<UserData> loadedList)
+                {
+                    list = loadedList;
+                    Debug.Log($"Usuarios cargados correctamente: {list.Count}");
+                    return true;
+                }
+
+                Debug.LogWarning("El archivo user_data.bin no contiene una List<UserData>. Se ignora.");
+                return false;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"No se pudo cargar user_data.bin. Archivo corrupto o incompatible. Se borra. Error: {e.Message}");
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception deleteException)
+            {
+                Debug.LogWarning($"No se pudo borrar el archivo corrupto: {deleteException.Message}");
+            }
+
+            list = new List<UserData>();
+            return false;
+        }
     }
 
     public static bool ExistsLogFile() {
