@@ -48,7 +48,7 @@ public class TargetScript : MonoBehaviour, IObstacleHandling
     public void DestroyObstacle()
     {
         if(!hit)
-            EventBus.PublishEvent(failureEvent);
+            PublishResultEvent(failureEvent);
         this.obstacleSpawner.RemoveObstacle(this.gameObject);
     }
 
@@ -67,17 +67,23 @@ public class TargetScript : MonoBehaviour, IObstacleHandling
                 this.acceptedHit == HitType.LEFT_HIT && playerTracker.ValidLeftPunch))
         {
 
-            EventBus.PublishEvent(successEvent);
+            PublishResultEvent(successEvent);
 
         }
         else
         {
-            EventBus.PublishEvent(failureEvent);
+            PublishResultEvent(failureEvent);
             correctHit = false;
 
         }
 
         this.hit = true;
+    }
+
+    protected void PublishResultEvent(GameEvent gameEvent)
+    {
+        ServerExerciseContext context = GetComponentInParent<ServerExerciseContext>();
+        EventBus.PublishEvent(gameEvent, context != null ? context.RoutineItem : null);
     }
 
     protected virtual void InitPosition()

@@ -82,20 +82,44 @@ public class PlayerTracker : Subject
 
     public float CurrentSquatHeight
     {
-        get {
-            return userManager.activeUser.standingHeight -
-                Mathf.Min(userManager.activeUser.standingHeight, PlayerPosition.y);        
+        get
+        {
+            float standingHeight = ReferenceStandingHeight;
+            return standingHeight - Mathf.Min(standingHeight, PlayerPosition.y);
         }
     }
 
     public float SquatMinHeight
     {
-        get { return userManager.activeUser.standingHeight - minHeight; }
+        get { return ReferenceStandingHeight - minHeight; }
+    }
+
+    private float ReferenceStandingHeight
+    {
+        get
+        {
+            RoutineManager routineManager = ServiceLocator.Instance != null
+                ? ServiceLocator.Instance.RoutineManager
+                : null;
+
+            if (routineManager != null && routineManager.selectedRoutine is ServerRoutineData serverRoutine
+                && serverRoutine.userHeightMeters > 0.0f)
+            {
+                return serverRoutine.userHeightMeters;
+            }
+
+            if (userManager != null && userManager.activeUser != null)
+            {
+                return userManager.activeUser.standingHeight;
+            }
+
+            return PlayerPosition.y;
+        }
     }
 
     public void ResetTrackingData() {
 
-        minHeight = userManager.activeUser.standingHeight;
+        minHeight = ReferenceStandingHeight;
         startingPosition = PlayerPosition;
     }
     // Update is called once per frame
@@ -130,12 +154,4 @@ public class PlayerTracker : Subject
         this.standing = false;
         this.NotifyObservers();
     }
-
-    /*public void OnNotify()
-    {
-        if(userManager.activeUser != null)
-        {
-            playerStandingHeight = userManager.activeUser.standingHeight;
-        }
-    }*/
 }

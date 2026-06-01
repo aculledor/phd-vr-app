@@ -22,14 +22,14 @@ public class SquatScript : WallScript
         failFlag = true;
         triggerFailAnimation = true;
         squatDetection.SetActive(false);
-        EventBus.PublishEvent(failureEvent);
+        PublishResultEvent(failureEvent);
     }
 
     public void NotifyIncorrectSquat()
     {
         failFlag = true;
         squatDetection.SetActive(false);
-        EventBus.PublishEvent(failureEvent);
+        PublishResultEvent(failureEvent);
     }
 
     public override void DestroyObstacle()
@@ -39,7 +39,7 @@ public class SquatScript : WallScript
             is_destroyed = true;
             if (!this.failFlag)
             {
-                EventBus.PublishEvent(successEvent);
+                PublishResultEvent(successEvent);
             }
 
             this.obstacleSpawner.RemoveObstacle(this.rootElement);
