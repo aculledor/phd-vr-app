@@ -36,17 +36,38 @@ public class OVRDeviceSelector
 			return isTargetDeviceQuest || isTargetDeviceQuest2;
 		}
 	}
+	static bool IsProjectConfigTargetDeviceEnabled(OVRProjectConfig.DeviceType deviceType)
+	{
+		OVRProjectConfig projectConfig = OVRProjectConfig.GetProjectConfig();
+		return projectConfig.targetDeviceTypes.Contains(deviceType);
+	}
+
+#if PRIORITIZE_OCULUS_XR_SETTINGS
+	static bool IsOculusSettingsTargetDeviceEnabled(string propertyName, OVRProjectConfig.DeviceType fallbackDeviceType)
+	{
+		OculusSettings settings;
+		UnityEditor.EditorBuildSettings.TryGetConfigObject<OculusSettings>("Unity.XR.Oculus.Settings", out settings);
+		if (settings != null)
+		{
+			var property = typeof(OculusSettings).GetProperty(propertyName);
+			if (property != null && property.PropertyType == typeof(bool))
+			{
+				return (bool)property.GetValue(settings, null);
+			}
+		}
+
+		return IsProjectConfigTargetDeviceEnabled(fallbackDeviceType);
+	}
+#endif
+
 	public static bool isTargetDeviceQuest
 	{
 		get
 		{
 #if PRIORITIZE_OCULUS_XR_SETTINGS
-			OculusSettings settings;
-			UnityEditor.EditorBuildSettings.TryGetConfigObject<OculusSettings>("Unity.XR.Oculus.Settings", out settings);
-			return settings.TargetQuest;
+			return IsOculusSettingsTargetDeviceEnabled("TargetQuest", OVRProjectConfig.DeviceType.Quest);
 #else
-			OVRProjectConfig projectConfig = OVRProjectConfig.GetProjectConfig();
-			return projectConfig.targetDeviceTypes.Contains(OVRProjectConfig.DeviceType.Quest);
+			return IsProjectConfigTargetDeviceEnabled(OVRProjectConfig.DeviceType.Quest);
 #endif
 
 		}
@@ -57,12 +78,9 @@ public class OVRDeviceSelector
 		get
 		{
 #if PRIORITIZE_OCULUS_XR_SETTINGS
-			OculusSettings settings;
-			UnityEditor.EditorBuildSettings.TryGetConfigObject<OculusSettings>("Unity.XR.Oculus.Settings", out settings);
-			return settings.TargetQuest2;
+			return IsOculusSettingsTargetDeviceEnabled("TargetQuest2", OVRProjectConfig.DeviceType.Quest2);
 #else
-			OVRProjectConfig projectConfig = OVRProjectConfig.GetProjectConfig();
-			return projectConfig.targetDeviceTypes.Contains(OVRProjectConfig.DeviceType.Quest2);
+			return IsProjectConfigTargetDeviceEnabled(OVRProjectConfig.DeviceType.Quest2);
 #endif
 		}
 	}
