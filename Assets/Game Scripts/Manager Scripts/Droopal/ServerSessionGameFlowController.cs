@@ -23,6 +23,7 @@ public class ServerSessionGameFlowController : MonoBehaviour
 
     private ServerRoutineData loadedRoutine;
     private bool routineRunning;
+    private bool suppressNextRoutineEndWindow;
 
     private void Awake()
     {
@@ -36,6 +37,8 @@ public class ServerSessionGameFlowController : MonoBehaviour
 
     private void OnEnable()
     {
+        EventBus.Subscribe(HandleRoutineEnded, GameEvent.END_REHAB);
+
         if (drupalClient == null)
         {
             return;
@@ -52,6 +55,8 @@ public class ServerSessionGameFlowController : MonoBehaviour
 
     private void OnDisable()
     {
+        EventBus.Unsubscribe(HandleRoutineEnded, GameEvent.END_REHAB);
+
         if (drupalClient == null)
         {
             return;
@@ -98,7 +103,7 @@ public class ServerSessionGameFlowController : MonoBehaviour
         }
 
         routineManager.PauseRoutineFromServer();
-        SetStatus("Rutina pausada desde el servidor.");
+        ShowConnectingState("Rutina pausada desde el servidor.");
     }
 
     private void HandleResumeReceived(ServerCommand command)
@@ -109,6 +114,7 @@ public class ServerSessionGameFlowController : MonoBehaviour
         }
 
         routineManager.ResumeRoutineFromServer();
+        HideConnectionUi();
         SetStatus("Rutina reanudada desde el servidor.");
     }
 
@@ -119,7 +125,9 @@ public class ServerSessionGameFlowController : MonoBehaviour
             return;
         }
 
+        suppressNextRoutineEndWindow = true;
         routineManager.StopRoutineFromServer(false);
+        suppressNextRoutineEndWindow = false;
         HideConnectionUi();
         routineRunning = true;
         routineManager.StartSelectedRoutineFromServer();
@@ -129,6 +137,24 @@ public class ServerSessionGameFlowController : MonoBehaviour
     {
         routineRunning = false;
         routineManager.StopRoutineFromServer(true);
+        ShowWaitingForStartState(loadedRoutine);
+    }
+
+
+    private void HandleRoutineEnded()
+    {
+        if (suppressNextRoutineEndWindow)
+        {
+            suppressNextRoutineEndWindow = false;
+            return;
+        }
+
+        if (!routineRunning)
+        {
+            return;
+        }
+
+        routineRunning = false;
         ShowWaitingForStartState(loadedRoutine);
     }
 
@@ -171,14 +197,9 @@ public class ServerSessionGameFlowController : MonoBehaviour
 
     private void ShowWaitingForStartState(ServerRoutineData routine)
     {
-        if (connectingWindow != null)
-        {
-            connectingWindow.SetActive(true);
-        }
-
         string routineId = routine != null ? routine.routineId : "-";
         string userId = routine != null ? routine.userId : "-";
-        SetStatus("Conectado. Rutina " + routineId + " descargada para usuario " + userId + ". Esperando señal de inicio...");
+        ShowConnectingState("Conectado. Rutina " + routineId + " descargada para usuario " + userId + ". Esperando señal de inicio...");
     }
 
     private void HideConnectionUi()

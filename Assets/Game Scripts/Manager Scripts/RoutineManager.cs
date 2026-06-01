@@ -1,8 +1,5 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using System;
-using TMPro;
 
 public class RoutineManager : MonoBehaviour
 {
@@ -18,6 +15,7 @@ public class RoutineManager : MonoBehaviour
 
     public float minGuardianWidth;
     private bool pausedByServer;
+    private Coroutine initRoutineCoroutine;
 
     private void Start()
     {
@@ -26,25 +24,26 @@ public class RoutineManager : MonoBehaviour
 
     public void HandleStart()
     {
-        if (!selectedRoutine.allowMovement
-            || OVRManager.boundary?.GetDimensions(OVRBoundary.BoundaryType.PlayArea).x>= minGuardianWidth)
+        if (selectedRoutine == null)
         {
-            if (RoutineHasSelectedParameter())
-            {
-                StartCoroutine(InitRoutine());
+            Debug.LogWarning("No hay rutina seleccionada para iniciar.");
+            return;
+        }
 
-            } else
-            {
-                UIManager.Instance.SwitchDialogue("no-routine-dialogue");
-            }
-        } else if(selectedRoutine is RoutinePresets)
+        if (!RoutineHasSelectedParameter())
         {
-            UIManager.Instance.SwitchDialogue("no-space-warning");
+            Debug.LogWarning("La rutina seleccionada no contiene ejercicios activos.");
+            return;
         }
-        else
+
+        if (selectedRoutine.allowMovement && OVRManager.boundary != null
+            && OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea).x < minGuardianWidth)
         {
-            UIManager.Instance.SwitchDialogue("no-space-custom");
+            Debug.LogWarning("No hay espacio suficiente para iniciar una rutina con movimiento lateral.");
+            return;
         }
+
+        StartRoutineAfterPreparation();
     }
 
 
@@ -69,7 +68,7 @@ public class RoutineManager : MonoBehaviour
 
         pausedByServer = false;
         Time.timeScale = 1.0f;
-        StartCoroutine(InitRoutine());
+        StartRoutineAfterPreparation();
     }
 
     public void PauseRoutineFromServer()
@@ -88,17 +87,32 @@ public class RoutineManager : MonoBehaviour
     {
         pausedByServer = false;
         Time.timeScale = 1.0f;
+
+        if (initRoutineCoroutine != null)
+        {
+            StopCoroutine(initRoutineCoroutine);
+            initRoutineCoroutine = null;
+        }
+
         obstacleSpawner.StopSpawning(true, showResults);
+    }
+
+    private void StartRoutineAfterPreparation()
+    {
+        if (initRoutineCoroutine != null)
+        {
+            StopCoroutine(initRoutineCoroutine);
+        }
+
+        initRoutineCoroutine = StartCoroutine(InitRoutine());
     }
 
     private IEnumerator InitRoutine()
     {
-        UIManager.Instance.SwitchCanvas();
-        UIManager.Instance.SwitchWindow("countdown-timer");
-
-        //Wait until the preparation counter finishes.
+        // The server-driven flow owns all visible windows. RoutineManager only waits
+        // the configured preparation time and starts spawning obstacles.
         yield return new WaitForSeconds(startTime + 1.0f);
-        UIManager.Instance.HideCurrenMenu();
+        initRoutineCoroutine = null;
         this.obstacleSpawner.StartSpawning();
     }
 
@@ -111,15 +125,17 @@ public class RoutineManager : MonoBehaviour
 
     public void HandleReducedSpaceStart()
     {
-        UIManager.Instance.HideCurrentDialogue();
-        ((RoutinePresets) this.selectedRoutine).allowMovement = false;
+        if (this.selectedRoutine is RoutinePresets preset)
+        {
+            preset.allowMovement = false;
+        }
+
         this.HandleStart();
     }
 
     public void handleEnd()
     {
-        UIManager.Instance.SwitchCanvas();
-        UIManager.Instance.SwitchWindow("results-menu");
+        Debug.Log("Rutina finalizada.");
     }
 
     private void OnApplicationFocus(bool focus)
