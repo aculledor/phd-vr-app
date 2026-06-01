@@ -188,7 +188,7 @@ public class RehabLogger : MonoBehaviour, IBusEventCallback
     private IEnumerator GetFileToken()
     {
 
-        UnityWebRequest uploadTokenCall = UnityWebRequest.Post($"https://api.inverbisanalytics.com/v0/processmining/" +
+        UnityWebRequest uploadTokenCall = UnityWebRequest.PostWwwForm($"https://api.inverbisanalytics.com/v0/processmining/" +
             $"datasets/{uuid}/uploads/initiate", "");
         uploadTokenCall.SetRequestHeader("Authorization", $"Bearer {accessToken}");
         uploadTokenCall.SetRequestHeader("Content-Type", "application/json");
