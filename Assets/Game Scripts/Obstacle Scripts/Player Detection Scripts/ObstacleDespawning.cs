@@ -10,6 +10,14 @@ public class ObstacleDespawning : MonoBehaviour
         ResolvePlayerTracker();
     }
 
+    private void Start()
+    {
+        if (playerTracker == null && ServiceLocator.Instance != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+    }
+
     private void OnTriggerExit(Collider other)
     {
         IObstacleHandling handle = other.GetComponentInParent<IObstacleHandling>();
