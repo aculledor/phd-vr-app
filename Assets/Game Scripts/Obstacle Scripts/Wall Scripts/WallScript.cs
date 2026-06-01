@@ -37,6 +37,13 @@ public abstract class WallScript : MonoBehaviour, IObstacleHandling
         }
     }
 
+
+    protected void PublishResultEvent(GameEvent gameEvent)
+    {
+        ServerExerciseContext context = GetComponentInParent<ServerExerciseContext>();
+        EventBus.PublishEvent(gameEvent, context != null ? context.RoutineItem : null);
+    }
+
     public abstract void WallFailed();
     /*{
         this.failed = true;

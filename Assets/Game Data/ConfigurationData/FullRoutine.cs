@@ -77,4 +77,36 @@ public class FullRoutineItem
     public ObstacleType obstacleElement;
     public ObstacleLane obstacleLane;
     public float timeUntilNext;
+    public bool spawnObstacle = true;
+    public string serverExerciseId;
+    public string serverExerciseTypeCode;
+    public float heightOverrideMeters;
+    public float distanceOverrideMeters;
+
+    public static FullRoutineItem CreateObstacle(ObstacleType obstacleElement, ObstacleLane obstacleLane, float timeUntilNext,
+        string serverExerciseId = null, string serverExerciseTypeCode = null, float heightOverrideMeters = 0.0f, float distanceOverrideMeters = 0.0f)
+    {
+        return new FullRoutineItem
+        {
+            obstacleElement = obstacleElement,
+            obstacleLane = obstacleLane,
+            timeUntilNext = timeUntilNext,
+            spawnObstacle = true,
+            serverExerciseId = serverExerciseId,
+            serverExerciseTypeCode = serverExerciseTypeCode,
+            heightOverrideMeters = heightOverrideMeters,
+            distanceOverrideMeters = distanceOverrideMeters
+        };
+    }
+
+    public static FullRoutineItem CreateWait(float timeUntilNext, string serverExerciseId = null, string serverExerciseTypeCode = null)
+    {
+        return new FullRoutineItem
+        {
+            timeUntilNext = timeUntilNext,
+            spawnObstacle = false,
+            serverExerciseId = serverExerciseId,
+            serverExerciseTypeCode = serverExerciseTypeCode
+        };
+    }
 }

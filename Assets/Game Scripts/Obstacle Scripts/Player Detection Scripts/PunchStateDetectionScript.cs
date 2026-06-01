@@ -57,7 +57,19 @@ public class PunchStateDetectionScript : MonoBehaviour
 
 	private void UpdateColliderOffset()
 	{
-		offset = userManager.activeUser.punchZOffset;
+		RoutineManager routineManager = ServiceLocator.Instance != null
+			? ServiceLocator.Instance.RoutineManager
+			: null;
+
+		if (routineManager != null && routineManager.selectedRoutine is ServerRoutineData)
+		{
+			offset = 0.0f;
+			return;
+		}
+
+		offset = userManager != null && userManager.activeUser != null
+			? userManager.activeUser.punchZOffset
+			: 0.0f;
 	}
 
 	//Detects which element collided with the box
