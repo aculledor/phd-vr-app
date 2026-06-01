@@ -18,20 +18,17 @@ public class HintSystem : MonoBehaviour, IObserver
     private ObstacleType currentObstacle;
     public RoutineManager routineManager;
     public ObstacleSpawner obstacleSpawner;
-    public PlayerTracker playerTracker;
 
     private void OnEnable()
     {
         this.leftIcon.enabled = false;
         this.rightIcon.enabled = false;
         EventBus.Subscribe(HandleRehabStart, GameEvent.START_REHAB);
-        playerTracker.Register(this);
     }
 
     private void OnDisable()
     {
         EventBus.Unsubscribe(HandleRehabStart, GameEvent.START_REHAB);
-        playerTracker.Unregister(this);
     }
 
 
@@ -96,10 +93,11 @@ public class HintSystem : MonoBehaviour, IObserver
     //the arrow pointing out which movement to perform.
     public void UpdateSquatStatus()
     {
-        bool standing = this.playerTracker.standing;
+        // bool standing = this.playerTracker.standing;
 
         if (this.currentObstacle == ObstacleType.CROUCH_WALL) { 
-            if (standing)
+            //if (standing)
+            if (true)
             {
                 this.leftIcon.sprite = arrowDown;
                 this.rightIcon.sprite = arrowDown;

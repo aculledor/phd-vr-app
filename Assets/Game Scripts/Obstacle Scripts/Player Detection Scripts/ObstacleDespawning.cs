@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class ObstacleDespawning : MonoBehaviour
@@ -8,13 +6,25 @@ public class ObstacleDespawning : MonoBehaviour
 
     private void OnTriggerExit(Collider other)
     {
-        IObstacleHandling handle = other.GetComponent<IObstacleHandling>();
+        IObstacleHandling handle = other.GetComponentInParent<IObstacleHandling>();
+
+        if (handle == null)
+        {
+            Debug.LogWarning($"El objeto {other.name} salió del trigger, pero no tiene IObstacleHandling.");
+            return;
+        }
+
         handle.DestroyObstacle();
     }
 
-    //Updates the position of the collider to the position of the player.
     private void Update()
     {
-        this.transform.position = this.playerTransform.position;
+        if (playerTransform == null)
+        {
+            Debug.LogWarning("ObstacleDespawning no tiene playerTransform asignado.");
+            return;
+        }
+
+        transform.position = playerTransform.position;
     }
 }
