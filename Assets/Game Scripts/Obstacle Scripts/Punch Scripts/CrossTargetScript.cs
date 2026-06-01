@@ -12,11 +12,11 @@ public class CrossTargetScript : TargetScript
     {
         if (this.acceptedHit.Equals(playerHit))
         {
-            EventBus.PublishEvent(successEvent);
+            PublishResultEvent(successEvent);
         }
         else
         {
-            EventBus.PublishEvent(failureEvent);
+            PublishResultEvent(failureEvent);
             correctHit = false;
         }
         this.hit = true;

@@ -15,7 +15,7 @@ public class StandWallScript : WallScript
     public override void WallFailed()
     {
         triggerFailAnimation = true;
-        EventBus.PublishEvent(failureEvent);
+        PublishResultEvent(failureEvent);
     }
 
     public override void DestroyObstacle()
@@ -25,7 +25,7 @@ public class StandWallScript : WallScript
             is_destroyed = true;
             if (!this.triggerFailAnimation)
             {
-                EventBus.PublishEvent(successEvent);
+                PublishResultEvent(successEvent);
             }
 
             this.obstacleSpawner.RemoveObstacle(this.gameObject);

@@ -145,7 +145,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             return;
         }
 
-        _ = SendExerciseResultForGameEventAsync(gameEvent);
+        _ = SendExerciseResultForGameEventAsync(gameEvent, EventBus.CurrentExerciseItem);
     }
 
     private void HandleRehabStart()
@@ -442,7 +442,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     }
 
 
-    private async Task SendExerciseResultForGameEventAsync(GameEvent gameEvent)
+    private async Task SendExerciseResultForGameEventAsync(GameEvent gameEvent, FullRoutineItem exerciseItem)
     {
         if (string.IsNullOrWhiteSpace(DrupalToken))
         {
@@ -463,12 +463,15 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         {
             DateTimeOffset timestamp = DateTimeOffset.UtcNow;
             MovementData movementData = MovementData.FromPlayerTracker(playerTracker, gameEvent);
-            JObject additionalMetadata = BuildExerciseEventMetadata(gameEvent, timestamp);
+            JObject additionalMetadata = BuildExerciseEventMetadata(gameEvent, timestamp, exerciseItem);
+            string exerciseId = GetExerciseIdForEvent(gameEvent, exerciseItem);
+
+            Debug.Log("Enviando medición de ejercicio a Drupal. exercise_id=" + exerciseId + ", event=" + gameEvent);
 
             await SendExerciseResultAsync(
                 routineId,
                 userId,
-                ToExerciseId(gameEvent),
+                exerciseId,
                 ToExerciseOutcome(gameEvent),
                 movementData,
                 "game_event",
@@ -482,7 +485,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         }
     }
 
-    private JObject BuildExerciseEventMetadata(GameEvent gameEvent, DateTimeOffset timestamp)
+    private JObject BuildExerciseEventMetadata(GameEvent gameEvent, DateTimeOffset timestamp, FullRoutineItem exerciseItem)
     {
         JObject metadata = new JObject
         {
@@ -493,6 +496,17 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         if (sessionStartTime.HasValue)
         {
             metadata["session_start_time"] = sessionStartTime.Value.ToString("o");
+        }
+
+        if (exerciseItem != null)
+        {
+            metadata["server_exercise"] = new JObject
+            {
+                ["exercise_id"] = exerciseItem.serverExerciseId,
+                ["exercise_type_code"] = exerciseItem.serverExerciseTypeCode,
+                ["height_meters"] = exerciseItem.heightOverrideMeters,
+                ["distance_meters"] = exerciseItem.distanceOverrideMeters
+            };
         }
 
         IRoutineData routineData = routineManager != null ? routineManager.selectedRoutine : null;
@@ -533,6 +547,12 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             return CurrentSession.user_id;
         }
 
+        if (routineManager != null && routineManager.selectedRoutine is ServerRoutineData serverRoutine
+            && !string.IsNullOrWhiteSpace(serverRoutine.userId))
+        {
+            return serverRoutine.userId;
+        }
+
         return userManager != null && userManager.activeUser != null
             ? userManager.activeUser.identifier
             : null;
@@ -548,6 +568,11 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         if (routineManager == null || routineManager.selectedRoutine == null)
         {
             return null;
+        }
+
+        if (routineManager.selectedRoutine is ServerRoutineData serverRoutine && !string.IsNullOrWhiteSpace(serverRoutine.routineId))
+        {
+            return serverRoutine.routineId;
         }
 
         if (routineManager.selectedRoutine is RoutinePresets preset && !string.IsNullOrWhiteSpace(preset.identifier))
@@ -1009,6 +1034,13 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             default:
                 return false;
         }
+    }
+
+    private static string GetExerciseIdForEvent(GameEvent gameEvent, FullRoutineItem exerciseItem)
+    {
+        return exerciseItem != null && !string.IsNullOrWhiteSpace(exerciseItem.serverExerciseId)
+            ? exerciseItem.serverExerciseId
+            : ToExerciseId(gameEvent);
     }
 
     private static string ToExerciseOutcome(GameEvent gameEvent)

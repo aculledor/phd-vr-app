@@ -22,6 +22,8 @@ public enum GameEvent
 
 public class EventBus
 {
+    public static FullRoutineItem CurrentExerciseItem { get; private set; }
+
     private static readonly IDictionary<GameEvent, UnityEvent>
         EventsDictionary = new Dictionary<GameEvent, UnityEvent>();
     private static readonly List<IBusEventCallback> listeners = new List<IBusEventCallback>();
@@ -72,22 +74,38 @@ public class EventBus
         listeners.Remove(listener);
     }
 
-    public static void PublishEvent(GameEvent gameEvent){
+    public static void PublishEvent(GameEvent gameEvent)
+    {
+        PublishEvent(gameEvent, null);
+    }
+
+    public static void PublishEvent(GameEvent gameEvent, FullRoutineItem exerciseItem)
+    {
         UnityEvent invoked_event;
 
         Debug.Log(gameEvent.ToString());
 
-        //Notify all the subscribers who process the game event.
-        foreach(IBusEventCallback listener in listeners)
-        {
-            listener.HandleEvent(gameEvent);
-        }
+        FullRoutineItem previousExerciseItem = CurrentExerciseItem;
+        CurrentExerciseItem = exerciseItem;
 
-        //Invoke the registered methods.
-        if (EventsDictionary.TryGetValue(gameEvent, out invoked_event))
+        try
         {
-            invoked_event.Invoke();
-        }    
+            //Notify all the subscribers who process the game event.
+            foreach(IBusEventCallback listener in listeners)
+            {
+                listener.HandleEvent(gameEvent);
+            }
+
+            //Invoke the registered methods.
+            if (EventsDictionary.TryGetValue(gameEvent, out invoked_event))
+            {
+                invoked_event.Invoke();
+            }
+        }
+        finally
+        {
+            CurrentExerciseItem = previousExerciseItem;
+        }
     }
 
 }

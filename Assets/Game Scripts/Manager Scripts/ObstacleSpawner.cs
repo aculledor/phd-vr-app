@@ -7,6 +7,10 @@ public class ObstacleSpawner : MonoBehaviour
     [SerializeField]
     public RoutineManager routineManager;
     public UserManager userManager;
+    [SerializeField]
+    private float serverFallbackHeight = 1.65f;
+    [SerializeField]
+    private float serverDefaultTargetOffset = 0.35f;
     //Routine obstacles
     [SerializeField]
     private List<WallItem> wallList;
@@ -43,6 +47,9 @@ public class ObstacleSpawner : MonoBehaviour
 
     //Spawned obstacles list
     private List<GameObject> spawnedObstacles;
+    private Coroutine activeSpawnCoroutine;
+    private Coroutine activeEndCoroutine;
+    private bool isSpawning;
 
 
     public OVRScreenFade screenFade;
@@ -118,7 +125,32 @@ public class ObstacleSpawner : MonoBehaviour
 
     private void InitializeCallibrationParameters()
     {
-        UserData user = userManager.activeUser;
+        if (routineManager.selectedRoutine is ServerRoutineData serverRoutine)
+        {
+            float serverHeight = serverRoutine.userHeightMeters > 0.0f
+                ? serverRoutine.userHeightMeters
+                : serverFallbackHeight;
+
+            standingHeight = serverHeight;
+            squattingHeight = serverHeight;
+            targetHeight = serverHeight;
+            targetOffset = serverDefaultTargetOffset;
+            standTrackerTransform.position = new Vector3(0, standingHeight + 0.075f, 0);
+            return;
+        }
+
+        UserData user = userManager != null ? userManager.activeUser : null;
+        if (user == null)
+        {
+            Debug.LogWarning("No hay usuario local activo para una rutina local; se usan parámetros de calibración por defecto.");
+            standingHeight = serverFallbackHeight;
+            squattingHeight = serverFallbackHeight;
+            targetHeight = serverFallbackHeight;
+            targetOffset = serverDefaultTargetOffset;
+            standTrackerTransform.position = new Vector3(0, standingHeight + 0.075f, 0);
+            return;
+        }
+
         standingHeight = user.standingHeight;
         squattingHeight = user.squattingHeight;
         targetHeight = user.targetYOffset;
@@ -130,21 +162,101 @@ public class ObstacleSpawner : MonoBehaviour
     {
         foreach (FullRoutineItem item in items)
         {
-            CreateObstacle(item.obstacleElement, item.obstacleLane);
+            if (item.spawnObstacle)
+            {
+                ApplyExerciseOverrides(item);
+                CreateObstacle(item);
+            }
+
             yield return new WaitForSeconds(item.timeUntilNext);
         }
     }
 
     public void StartSpawning()
     {
-
+        StopActiveCoroutines();
+        ClearSpawnedObstacles();
         InitializeCallibrationParameters();
         FullRoutineItem[] patientRoutine = routineManager.
             selectedRoutine.GenerateRoutine();
 
+        isSpawning = true;
         EventBus.PublishEvent(GameEvent.START_REHAB);
-        Coroutine spawnCoroutine =  StartCoroutine(SpawnObstacleList(patientRoutine));
-        StartCoroutine(EndSpawning(spawnCoroutine));
+        activeSpawnCoroutine = StartCoroutine(SpawnObstacleList(patientRoutine));
+        activeEndCoroutine = StartCoroutine(EndSpawning(activeSpawnCoroutine));
+    }
+
+    public void StopSpawning(bool publishEndEvent = true, bool showResults = true)
+    {
+        if (!isSpawning && spawnedObstacles.Count == 0)
+        {
+            return;
+        }
+
+        StopActiveCoroutines();
+        ClearSpawnedObstacles();
+        isSpawning = false;
+        Time.timeScale = 1.0f;
+
+        if (publishEndEvent)
+        {
+            EventBus.PublishEvent(GameEvent.END_REHAB);
+        }
+
+        if (showResults)
+        {
+            routineManager.handleEnd();
+        }
+    }
+
+    private void StopActiveCoroutines()
+    {
+        if (activeSpawnCoroutine != null)
+        {
+            StopCoroutine(activeSpawnCoroutine);
+            activeSpawnCoroutine = null;
+        }
+
+        if (activeEndCoroutine != null)
+        {
+            StopCoroutine(activeEndCoroutine);
+            activeEndCoroutine = null;
+        }
+    }
+
+    private void ClearSpawnedObstacles()
+    {
+        foreach (GameObject obs in this.spawnedObstacles)
+        {
+            if (obs != null)
+            {
+                Destroy(obs);
+            }
+        }
+
+        spawnedObstacles.Clear();
+    }
+
+    private void ApplyExerciseOverrides(FullRoutineItem item)
+    {
+        if (item.heightOverrideMeters <= 0.0f)
+        {
+            return;
+        }
+
+        if (item.obstacleElement == ObstacleType.LEFT_HIT || item.obstacleElement == ObstacleType.RIGHT_HIT
+            || item.obstacleElement == ObstacleType.CROSS_LEFT_HIT || item.obstacleElement == ObstacleType.CROSS_RIGHT_HIT)
+        {
+            targetHeight = item.heightOverrideMeters;
+        }
+        else if (item.obstacleElement == ObstacleType.CROUCH_WALL)
+        {
+            squattingHeight = item.heightOverrideMeters;
+        }
+        else if (item.obstacleElement == ObstacleType.STAND_WALL)
+        {
+            standingHeight = item.heightOverrideMeters;
+        }
     }
 
     //Remove an obstacle from the scene and the instanced elements list.
@@ -156,38 +268,60 @@ public class ObstacleSpawner : MonoBehaviour
 
 
     //Instance an obstacle in the game world
-    private void CreateObstacle(ObstacleType obstacle, ObstacleLane lane)
+    private void CreateObstacle(FullRoutineItem item)
     {
-        GameObject obj;
+        GameObject obj = null;
         Dictionary<ObstacleLane, GameObject> element_dictionary;
 
-        if (wallObstacles.TryGetValue(obstacle, out element_dictionary)
-            && element_dictionary.TryGetValue(lane, out obj))
+        if (wallObstacles.TryGetValue(item.obstacleElement, out element_dictionary)
+            && element_dictionary.TryGetValue(item.obstacleLane, out obj))
         {
             obj = Instantiate(obj, positionsDictionary[ObstacleLane.MID_LANE]);
         }
-        else if (targetDictionary.TryGetValue(obstacle, out obj))
+        else if (targetDictionary.TryGetValue(item.obstacleElement, out obj))
         {
-            obj = Instantiate(obj, positionsDictionary[lane]);
+            obj = Instantiate(obj, positionsDictionary[item.obstacleLane]);
         }
 
-        this.spawnedObstacles.Add(obj);
+        if (obj != null)
+        {
+            AttachServerExerciseContext(obj, item);
+            this.spawnedObstacles.Add(obj);
+        }
+    }
+
+    private void AttachServerExerciseContext(GameObject obj, FullRoutineItem item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.serverExerciseId))
+        {
+            return;
+        }
+
+        ServerExerciseContext context = obj.GetComponent<ServerExerciseContext>();
+        if (context == null)
+        {
+            context = obj.AddComponent<ServerExerciseContext>();
+        }
+
+        context.Initialize(item);
     }
 
     //Finish the routine session and delete the obstacles present in the scene.
     private IEnumerator EndSpawning(Coroutine spawnCoroutine)
     {
         yield return new WaitForSeconds(routineManager.selectedRoutine.routineDuration);
-        StopCoroutine(spawnCoroutine);
+        if (spawnCoroutine != null)
+        {
+            StopCoroutine(spawnCoroutine);
+        }
         this.screenFade.FadeOut();
 
         yield return new WaitForSeconds(screenFade.fadeTime);
 
-        //Delete all the instanced elements in the scene
-        foreach (GameObject obs in this.spawnedObstacles)
-        {
-            Destroy(obs);
-        }
+        ClearSpawnedObstacles();
+        isSpawning = false;
+        activeSpawnCoroutine = null;
+        activeEndCoroutine = null;
 
         EventBus.PublishEvent(GameEvent.END_REHAB);
         routineManager.handleEnd();
