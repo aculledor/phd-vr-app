@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class PunchStateDetectionScript : MonoBehaviour
@@ -8,94 +6,119 @@ public class PunchStateDetectionScript : MonoBehaviour
     private Collider leftCollider;
     [SerializeField]
     private Collider rightCollider;
-	[SerializeField]
-	private UserManager userManager;
-	[SerializeField]
-	private Transform userTransform;
-	
-	private bool leftColliding;
-    private bool rightColliding;
-	private float offset;
-	
-	//Verifies the correctness of the action.
-	public bool ValidRightPunch {
-		get
-		{
-			return (!leftColliding && rightColliding);
-		}
-	}
+    [SerializeField]
+    private UserManager userManager;
+    [SerializeField]
+    private PlayerTracker playerTracker;
 
-	public bool ValidLeftPunch
-    {
+    private bool leftColliding;
+    private bool rightColliding;
+    private float offset;
+
+    //Verifies the correctness of the action.
+    public bool ValidRightPunch {
         get
         {
-			return (leftColliding && !rightColliding);
+            return (!leftColliding && rightColliding);
         }
     }
 
-	//Repositions every frame the collider to a given distance in front of the player
-	private void Update()
-	{
+    public bool ValidLeftPunch
+    {
+        get
+        {
+            return (leftColliding && !rightColliding);
+        }
+    }
 
-		Vector3 userPosition = userTransform.position;
-		this.transform.position = new Vector3(userPosition.x, 0.0f, userPosition.z + offset);
-	}
+    //Repositions every frame the collider to a given distance in front of the player
+    private void Update()
+    {
+
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
+        {
+            Debug.LogError("PunchStateDetectionScript necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+            return;
+        }
+
+        Vector3 userPosition = playerTracker.PlayerPosition;
+        this.transform.position = new Vector3(userPosition.x, 0.0f, userPosition.z + offset);
+    }
 
 
-	private void Start()
-	{
-		offset = 0.0f;
-		leftColliding = false;
-		rightColliding = false;
-		EventBus.Subscribe(UpdateColliderOffset, GameEvent.START_REHAB);
-	}
+    private void Start()
+    {
+        ResolvePlayerTracker();
 
-	private void OnDestroy()
-	{
-		EventBus.Unsubscribe(UpdateColliderOffset, GameEvent.START_REHAB);
-	}
+        offset = 0.0f;
+        leftColliding = false;
+        rightColliding = false;
+        EventBus.Subscribe(UpdateColliderOffset, GameEvent.START_REHAB);
+    }
 
-	private void UpdateColliderOffset()
-	{
-		RoutineManager routineManager = ServiceLocator.Instance != null
-			? ServiceLocator.Instance.RoutineManager
-			: null;
+    private void OnDestroy()
+    {
+        EventBus.Unsubscribe(UpdateColliderOffset, GameEvent.START_REHAB);
+    }
 
-		if (routineManager != null && routineManager.selectedRoutine is ServerRoutineData)
-		{
-			offset = 0.0f;
-			return;
-		}
+    private void UpdateColliderOffset()
+    {
+        RoutineManager routineManager = ServiceLocator.Instance != null
+            ? ServiceLocator.Instance.RoutineManager
+            : null;
 
-		offset = userManager != null && userManager.activeUser != null
-			? userManager.activeUser.punchZOffset
-			: 0.0f;
-	}
+        if (routineManager != null && routineManager.selectedRoutine is ServerRoutineData)
+        {
+            offset = 0.0f;
+            return;
+        }
 
-	//Detects which element collided with the box
-	private void OnTriggerEnter(Collider other)
-	{
+        offset = userManager != null && userManager.activeUser != null
+            ? userManager.activeUser.punchZOffset
+            : 0.0f;
+    }
 
-		if (other == leftCollider)
-		{
-			leftColliding = true;
-		}
-		else if(other == rightCollider)
-		{
-			rightColliding = true;
-		}
-	}
+    private PlayerTracker ResolvePlayerTracker()
+    {
+        if (playerTracker != null)
+        {
+            return playerTracker;
+        }
 
-	private void OnTriggerExit(Collider other)
-	{
-		if (other == leftCollider)
-		{
-			leftColliding = false;
-		}
-		else if (other == rightCollider)
-		{
-			rightColliding = false;
-		}
-	}
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+
+        return playerTracker;
+    }
+
+    //Detects which element collided with the box
+    private void OnTriggerEnter(Collider other)
+    {
+
+        if (other == leftCollider)
+        {
+            leftColliding = true;
+        }
+        else if(other == rightCollider)
+        {
+            rightColliding = true;
+        }
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (other == leftCollider)
+        {
+            leftColliding = false;
+        }
+        else if (other == rightCollider)
+        {
+            rightColliding = false;
+        }
+    }
 
 }

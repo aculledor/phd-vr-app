@@ -52,8 +52,11 @@ public class ObstacleSpawner : MonoBehaviour
     private bool isSpawning;
 
 
-    public OVRScreenFade screenFade;
-    
+    [SerializeField]
+    private CanvasGroup screenFadeCanvas;
+    [SerializeField]
+    private float screenFadeTime = 1.0f;
+
     [NonSerialized]
     public float timeDifference;
 
@@ -65,13 +68,40 @@ public class ObstacleSpawner : MonoBehaviour
     {
         get
         {
-            float playerDistance = Mathf.Abs(playerTracker.PlayerPosition.z - 
-                positionsDictionary[ObstacleLane.MID_LANE].transform.position.z);
+            PlayerTracker resolvedPlayerTracker = ResolvePlayerTracker();
+
+            if (resolvedPlayerTracker == null)
+            {
+                Debug.LogError("ObstacleSpawner necesita PlayerTracker para calcular ObstacleArrivalTime. Asigna el PlayerTracker que usa el AutoHandPlayerTracker en el inspector o en el ServiceLocator.", this);
+                return 0.0f;
+            }
+
+            Transform middleLaneTransform = GetLaneTransform(ObstacleLane.MID_LANE);
+
+            if (middleLaneTransform == null)
+            {
+                Debug.LogError("ObstacleSpawner no tiene configurada la posición MID_LANE para calcular ObstacleArrivalTime.", this);
+                return 0.0f;
+            }
+
+            if (movementSpeed <= 0.0f)
+            {
+                Debug.LogError("ObstacleSpawner necesita movementSpeed mayor que 0 para calcular ObstacleArrivalTime.", this);
+                return 0.0f;
+            }
+
+            float playerDistance = Mathf.Abs(resolvedPlayerTracker.PlayerPosition.z
+                - middleLaneTransform.position.z);
 
             return playerDistance / movementSpeed;
         }
     }
 
+
+    private void Awake()
+    {
+        ResolvePlayerTracker();
+    }
 
     private void Start()
     {
@@ -81,6 +111,44 @@ public class ObstacleSpawner : MonoBehaviour
         this.difficultyDictionary = new Dictionary<DifficultyLevel, float>();
         this.spawnedObstacles = new List<GameObject>();
         InitializeDictionaries();
+    }
+
+    private PlayerTracker ResolvePlayerTracker()
+    {
+        if (playerTracker != null)
+        {
+            return playerTracker;
+        }
+
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+            return playerTracker;
+        }
+
+        playerTracker = FindObjectOfType<PlayerTracker>();
+        return playerTracker;
+    }
+
+    private Transform GetLaneTransform(ObstacleLane lane)
+    {
+        if (positionsDictionary != null && positionsDictionary.TryGetValue(lane, out Transform laneTransform))
+        {
+            return laneTransform;
+        }
+
+        if (positionsList != null)
+        {
+            foreach (LaneItem laneItem in positionsList)
+            {
+                if (laneItem.lane == lane)
+                {
+                    return laneItem.position;
+                }
+            }
+        }
+
+        return null;
     }
 
     //Initialize the obstacles and elements defined in the editor.
@@ -176,6 +244,7 @@ public class ObstacleSpawner : MonoBehaviour
     {
         StopActiveCoroutines();
         ClearSpawnedObstacles();
+        ResolvePlayerTracker();
         InitializeCallibrationParameters();
         FullRoutineItem[] patientRoutine = routineManager.
             selectedRoutine.GenerateRoutine();
@@ -314,9 +383,7 @@ public class ObstacleSpawner : MonoBehaviour
         {
             StopCoroutine(spawnCoroutine);
         }
-        this.screenFade.FadeOut();
-
-        yield return new WaitForSeconds(screenFade.fadeTime);
+        yield return FadeScreen(1.0f);
 
         ClearSpawnedObstacles();
         isSpawning = false;
@@ -325,8 +392,37 @@ public class ObstacleSpawner : MonoBehaviour
 
         EventBus.PublishEvent(GameEvent.END_REHAB);
         routineManager.handleEnd();
-        this.screenFade.FadeIn();
+        yield return FadeScreen(0.0f);
     }
+    private IEnumerator FadeScreen(float targetAlpha)
+    {
+        if (screenFadeCanvas == null)
+        {
+            Debug.LogWarning("ObstacleSpawner no tiene screenFadeCanvas asignado. Se omite el fundido de pantalla.", this);
+            yield break;
+        }
+
+        float fadeDuration = Mathf.Max(0.0f, screenFadeTime);
+
+        if (fadeDuration <= 0.0f)
+        {
+            screenFadeCanvas.alpha = targetAlpha;
+            yield break;
+        }
+
+        float startAlpha = screenFadeCanvas.alpha;
+        float elapsed = 0.0f;
+
+        while (elapsed < fadeDuration)
+        {
+            elapsed += Time.deltaTime;
+            screenFadeCanvas.alpha = Mathf.Lerp(startAlpha, targetAlpha, elapsed / fadeDuration);
+            yield return null;
+        }
+
+        screenFadeCanvas.alpha = targetAlpha;
+    }
+
 }
 
 [System.Serializable]

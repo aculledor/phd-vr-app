@@ -2,7 +2,13 @@ using UnityEngine;
 
 public class ObstacleDespawning : MonoBehaviour
 {
-    public Transform playerTransform;
+    [SerializeField]
+    private PlayerTracker playerTracker;
+
+    private void Start()
+    {
+        ResolvePlayerTracker();
+    }
 
     private void OnTriggerExit(Collider other)
     {
@@ -19,12 +25,29 @@ public class ObstacleDespawning : MonoBehaviour
 
     private void Update()
     {
-        if (playerTransform == null)
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
         {
-            Debug.LogWarning("ObstacleDespawning no tiene playerTransform asignado.");
+            Debug.LogError("ObstacleDespawning necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
             return;
         }
 
-        transform.position = playerTransform.position;
+        transform.position = playerTracker.PlayerPosition;
+    }
+
+    private PlayerTracker ResolvePlayerTracker()
+    {
+        if (playerTracker != null)
+        {
+            return playerTracker;
+        }
+
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+
+        return playerTracker;
     }
 }
