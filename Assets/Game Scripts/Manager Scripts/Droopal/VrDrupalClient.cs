@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -53,6 +54,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     [SerializeField] private ScoreSystem scoreSystem;
     [SerializeField] private RoutineManager routineManager;
     [SerializeField] private PlayerTracker playerTracker;
+    [SerializeField] private float movementTrackingIntervalSeconds = 0.5f;
 
     public event Action<JObject> SessionsReceived;
     public event Action<ServerCommand> CommandReceived;
@@ -78,6 +80,10 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
     private bool isDisconnecting;
     private bool eventBusSubscribed;
     private DateTimeOffset? sessionStartTime;
+    private Coroutine movementTrackingCoroutine;
+    private bool movementTrackingSendInFlight;
+    private FullRoutineItem lastExerciseItem;
+    private GameEvent? lastGameEvent;
 
     private void OnEnable()
     {
@@ -102,6 +108,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         EventBus.StopCapturingEvents(this);
         EventBus.Unsubscribe(HandleRehabStart, GameEvent.START_REHAB);
         EventBus.Unsubscribe(HandleRehabEnd, GameEvent.END_REHAB);
+        StopMovementTracking();
         eventBusSubscribed = false;
     }
 
@@ -130,11 +137,13 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
 
     private async void OnApplicationQuit()
     {
+        StopMovementTracking();
         await DisconnectAsync();
     }
 
     private async void OnDestroy()
     {
+        StopMovementTracking();
         await DisconnectAsync();
     }
 
@@ -145,18 +154,28 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             return;
         }
 
+        lastGameEvent = gameEvent;
+        if (EventBus.CurrentExerciseItem != null)
+        {
+            lastExerciseItem = EventBus.CurrentExerciseItem;
+        }
+
         _ = SendExerciseResultForGameEventAsync(gameEvent, EventBus.CurrentExerciseItem);
     }
 
     private void HandleRehabStart()
     {
         sessionStartTime = DateTimeOffset.UtcNow;
+        StartMovementTracking();
     }
 
     private void HandleRehabEnd()
     {
+        StopMovementTracking();
         StoreLocalScoreSummary();
         sessionStartTime = null;
+        lastExerciseItem = null;
+        lastGameEvent = null;
     }
 
     private void StoreLocalScoreSummary()
@@ -419,6 +438,15 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             ["user_id"] = userId
         };
 
+        if (additionalMetadata != null)
+        {
+            metadata.Merge(additionalMetadata, new JsonMergeSettings
+            {
+                MergeArrayHandling = MergeArrayHandling.Replace,
+                MergeNullValueHandling = MergeNullValueHandling.Ignore
+            });
+        }
+
         JObject payload = new JObject
         {
             ["metadata"] = metadata,
@@ -439,6 +467,64 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         return await PostJsonAsync(url, payload, DrupalToken);
     }
 
+    public async Task<JObject> SendMovementTrackingSampleAsync(
+        string routineId,
+        string userId,
+        string exerciseId,
+        string exerciseTypeCode,
+        GameEvent? gameEvent,
+        MovementData movementData,
+        DateTimeOffset? timestamp = null)
+    {
+        RequireAuthorized();
+
+        if (string.IsNullOrWhiteSpace(routineId)) throw new ArgumentException("routineId vacío.");
+        if (string.IsNullOrWhiteSpace(userId)) throw new ArgumentException("userId vacío.");
+        if (movementData == null) throw new ArgumentNullException(nameof(movementData), "movementData debe contener datos reales del tracking.");
+
+        DateTimeOffset ts = timestamp ?? DateTimeOffset.UtcNow;
+        string metadataTimestamp = ts.ToString("o", CultureInfo.InvariantCulture);
+        string sampleTimestamp = ts.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
+
+        JObject trackingSample = new JObject
+        {
+            ["sample_id"] = Guid.NewGuid().ToString(),
+            ["timestamp"] = sampleTimestamp,
+            ["exercise_id"] = SafeString(exerciseId),
+            ["sample_interval_seconds"] = movementTrackingIntervalSeconds
+        };
+
+        if (!string.IsNullOrWhiteSpace(exerciseTypeCode))
+        {
+            trackingSample["exercise_type_code"] = exerciseTypeCode;
+        }
+
+        if (gameEvent.HasValue)
+        {
+            trackingSample["legacy_game_event"] = gameEvent.Value.ToString();
+        }
+
+        JObject payload = new JObject
+        {
+            ["metadata"] = new JObject
+            {
+                ["version"] = "v1",
+                ["timestamp"] = metadataTimestamp,
+                ["source"] = "CiTIUS",
+                ["routine_id"] = routineId,
+                ["user_id"] = userId,
+                ["payload_type"] = "movement_tracking_sample"
+            },
+            ["tracking_sample"] = trackingSample,
+            ["movement_data"] = MovementDataToJson(movementData)
+        };
+
+        Debug.Log("POST /api/exercise tracking payload: " + payload.ToString(Formatting.None));
+
+        string url = CombineUrl(drupalBaseUrl, "/api/exercise");
+        return await PostJsonAsync(url, payload, DrupalToken);
+    }
+
     private static JObject MovementDataToJson(MovementData movementData)
     {
         return new JObject
@@ -446,14 +532,26 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
             ["left_controller_x"] = SafeString(movementData.left_controller_x),
             ["left_controller_y"] = SafeString(movementData.left_controller_y),
             ["left_controller_z"] = SafeString(movementData.left_controller_z),
+            ["left_controller_rot_x"] = SafeString(movementData.left_controller_rot_x),
+            ["left_controller_rot_y"] = SafeString(movementData.left_controller_rot_y),
+            ["left_controller_rot_z"] = SafeString(movementData.left_controller_rot_z),
+            ["left_controller_rot_w"] = SafeString(movementData.left_controller_rot_w),
 
             ["right_controller_x"] = SafeString(movementData.right_controller_x),
             ["right_controller_y"] = SafeString(movementData.right_controller_y),
             ["right_controller_z"] = SafeString(movementData.right_controller_z),
+            ["right_controller_rot_x"] = SafeString(movementData.right_controller_rot_x),
+            ["right_controller_rot_y"] = SafeString(movementData.right_controller_rot_y),
+            ["right_controller_rot_z"] = SafeString(movementData.right_controller_rot_z),
+            ["right_controller_rot_w"] = SafeString(movementData.right_controller_rot_w),
 
             ["head_x"] = SafeString(movementData.head_x),
             ["head_y"] = SafeString(movementData.head_y),
-            ["head_z"] = SafeString(movementData.head_z)
+            ["head_z"] = SafeString(movementData.head_z),
+            ["head_rot_x"] = SafeString(movementData.head_rot_x),
+            ["head_rot_y"] = SafeString(movementData.head_rot_y),
+            ["head_rot_z"] = SafeString(movementData.head_rot_z),
+            ["head_rot_w"] = SafeString(movementData.head_rot_w)
         };
     }
 
@@ -462,6 +560,118 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         return string.IsNullOrWhiteSpace(value) ? "0" : value;
     }
 
+
+    private void StartMovementTracking()
+    {
+        if (movementTrackingCoroutine != null)
+        {
+            return;
+        }
+
+        movementTrackingCoroutine = StartCoroutine(MovementTrackingRoutine());
+    }
+
+    private void StopMovementTracking()
+    {
+        if (movementTrackingCoroutine != null)
+        {
+            StopCoroutine(movementTrackingCoroutine);
+            movementTrackingCoroutine = null;
+        }
+
+        movementTrackingSendInFlight = false;
+    }
+
+    private IEnumerator MovementTrackingRoutine()
+    {
+        WaitForSeconds wait = new WaitForSeconds(Mathf.Max(0.1f, movementTrackingIntervalSeconds));
+
+        while (true)
+        {
+            TrySendMovementTrackingSample();
+            yield return wait;
+        }
+    }
+
+    private void TrySendMovementTrackingSample()
+    {
+        if (movementTrackingSendInFlight)
+        {
+            Debug.LogWarning("Se omite muestra de tracking: el envío anterior todavía está en curso.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DrupalToken))
+        {
+            Debug.LogWarning("No se envía tracking a Drupal: el dispositivo todavía no está autorizado.");
+            return;
+        }
+
+        if (!CurrentSession.running || CurrentSession.paused)
+        {
+            Debug.LogWarning("No se envía tracking a Drupal: la sesión no está activa o está pausada.");
+            return;
+        }
+
+        string userId = GetActiveUserId();
+        string routineId = GetActiveRoutineId();
+
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(routineId))
+        {
+            Debug.LogWarning("No se envía tracking a Drupal: falta user_id o routine_id.");
+            return;
+        }
+
+        FullRoutineItem exerciseItem = EventBus.ActiveExerciseItem ?? EventBus.CurrentExerciseItem ?? lastExerciseItem;
+        string exerciseId = exerciseItem != null && !string.IsNullOrWhiteSpace(exerciseItem.serverExerciseId)
+            ? exerciseItem.serverExerciseId
+            : (lastGameEvent.HasValue ? ToExerciseId(lastGameEvent.Value) : null);
+        string exerciseTypeCode = exerciseItem != null && !string.IsNullOrWhiteSpace(exerciseItem.serverExerciseTypeCode)
+            ? exerciseItem.serverExerciseTypeCode
+            : (lastGameEvent.HasValue ? ToExerciseId(lastGameEvent.Value).ToUpperInvariant() : null);
+        GameEvent? gameEvent = lastGameEvent;
+        MovementData movementData = MovementData.FromPlayerTracker(playerTracker, gameEvent, false);
+
+        movementTrackingSendInFlight = true;
+        _ = SendMovementTrackingSampleFireAndForgetAsync(
+            routineId,
+            userId,
+            exerciseId,
+            exerciseTypeCode,
+            gameEvent,
+            movementData,
+            DateTimeOffset.UtcNow);
+    }
+
+    private async Task SendMovementTrackingSampleFireAndForgetAsync(
+        string routineId,
+        string userId,
+        string exerciseId,
+        string exerciseTypeCode,
+        GameEvent? gameEvent,
+        MovementData movementData,
+        DateTimeOffset timestamp)
+    {
+        try
+        {
+            await SendMovementTrackingSampleAsync(
+                routineId,
+                userId,
+                exerciseId,
+                exerciseTypeCode,
+                gameEvent,
+                movementData,
+                timestamp);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("Error enviando tracking de movimiento a Drupal: " + ex.Message);
+        }
+        finally
+        {
+            movementTrackingSendInFlight = false;
+        }
+    }
 
     private async Task SendExerciseResultForGameEventAsync(GameEvent gameEvent, FullRoutineItem exerciseItem)
     {
@@ -497,7 +707,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 "execution",
                 Guid.NewGuid().ToString(),
                 timestamp,
-                null);
+                BuildExerciseEventMetadata(gameEvent, timestamp, exerciseItem));
         }
         catch (Exception ex)
         {
@@ -760,6 +970,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 Debug.Log("Orden PAUSE recibida: pausar rutina VR.");
                 CurrentSession.paused = true;
                 CurrentSession.last_action = "pause";
+                StopMovementTracking();
                 PauseReceived?.Invoke(command);
                 break;
 
@@ -768,6 +979,7 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 CurrentSession.running = true;
                 CurrentSession.paused = false;
                 CurrentSession.last_action = "resume";
+                StartMovementTracking();
                 ResumeReceived?.Invoke(command);
                 break;
 
@@ -786,8 +998,9 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
                 CurrentSession.running = false;
                 CurrentSession.paused = false;
                 CurrentSession.last_action = "stop";
+                StopMovementTracking();
                 StopReceived?.Invoke(command);
-    break;
+                break;
 
             default:
                 RaiseError("Acción MQTT desconocida: status=" + command.status + ", action=" + command.action);
@@ -1241,14 +1454,26 @@ public class MovementData
     public string left_controller_x;
     public string left_controller_y;
     public string left_controller_z;
+    public string left_controller_rot_x;
+    public string left_controller_rot_y;
+    public string left_controller_rot_z;
+    public string left_controller_rot_w;
 
     public string right_controller_x;
     public string right_controller_y;
     public string right_controller_z;
+    public string right_controller_rot_x;
+    public string right_controller_rot_y;
+    public string right_controller_rot_z;
+    public string right_controller_rot_w;
 
     public string head_x;
     public string head_y;
     public string head_z;
+    public string head_rot_x;
+    public string head_rot_y;
+    public string head_rot_z;
+    public string head_rot_w;
 
     public string game_event;
     public string left_controller_distance;
@@ -1258,37 +1483,76 @@ public class MovementData
 
     public static MovementData FromUnityPositions(Vector3 leftController, Vector3 rightController, Vector3 head)
     {
+        return FromUnityPose(
+            leftController,
+            Quaternion.identity,
+            rightController,
+            Quaternion.identity,
+            head,
+            Quaternion.identity);
+    }
+
+    public static MovementData FromUnityPose(
+        Vector3 leftController,
+        Quaternion leftControllerRotation,
+        Vector3 rightController,
+        Quaternion rightControllerRotation,
+        Vector3 head,
+        Quaternion headRotation)
+    {
         return new MovementData
         {
             left_controller_x = FormatFloat(leftController.x),
             left_controller_y = FormatFloat(leftController.y),
             left_controller_z = FormatFloat(leftController.z),
+            left_controller_rot_x = FormatFloat(leftControllerRotation.x),
+            left_controller_rot_y = FormatFloat(leftControllerRotation.y),
+            left_controller_rot_z = FormatFloat(leftControllerRotation.z),
+            left_controller_rot_w = FormatFloat(leftControllerRotation.w),
 
             right_controller_x = FormatFloat(rightController.x),
             right_controller_y = FormatFloat(rightController.y),
             right_controller_z = FormatFloat(rightController.z),
+            right_controller_rot_x = FormatFloat(rightControllerRotation.x),
+            right_controller_rot_y = FormatFloat(rightControllerRotation.y),
+            right_controller_rot_z = FormatFloat(rightControllerRotation.z),
+            right_controller_rot_w = FormatFloat(rightControllerRotation.w),
 
             head_x = FormatFloat(head.x),
             head_y = FormatFloat(head.y),
-            head_z = FormatFloat(head.z)
+            head_z = FormatFloat(head.z),
+            head_rot_x = FormatFloat(headRotation.x),
+            head_rot_y = FormatFloat(headRotation.y),
+            head_rot_z = FormatFloat(headRotation.z),
+            head_rot_w = FormatFloat(headRotation.w)
         };
     }
 
-    public static MovementData FromPlayerTracker(PlayerTracker tracker, GameEvent gameEvent)
+    public static MovementData FromPlayerTracker(PlayerTracker tracker, GameEvent? gameEvent, bool resetTrackerAfterRead = true)
     {
         MovementData data = tracker != null
-            ? FromUnityPositions(tracker.LControllerPosition, tracker.RControllerPosition, tracker.PlayerPosition)
+            ? FromUnityPose(
+                tracker.LControllerPosition,
+                tracker.LeftHandRotation,
+                tracker.RControllerPosition,
+                tracker.RightHandRotation,
+                tracker.PlayerPosition,
+                tracker.HeadRotation)
             : new MovementData();
 
-        data.game_event = gameEvent.ToString();
+        data.game_event = gameEvent.HasValue ? gameEvent.Value.ToString() : null;
 
         if (tracker != null)
         {
             data.left_controller_distance = FormatFloat(tracker.LeftHitDistance);
             data.right_controller_distance = FormatFloat(tracker.RightHitDistance);
-            data.squat_height = FormatFloat(IsSquatSuccess(gameEvent) ? tracker.SquatMinHeight : tracker.CurrentSquatHeight);
+            data.squat_height = FormatFloat(gameEvent.HasValue && IsSquatSuccess(gameEvent.Value) ? tracker.SquatMinHeight : tracker.CurrentSquatHeight);
             data.horizontal_movement = FormatFloat(tracker.HorizontalMovement);
-            tracker.ResetTrackingData();
+
+            if (resetTrackerAfterRead)
+            {
+                tracker.ResetTrackingData();
+            }
         }
 
         return data;

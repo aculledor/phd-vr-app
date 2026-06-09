@@ -23,6 +23,20 @@ public enum GameEvent
 public class EventBus
 {
     public static FullRoutineItem CurrentExerciseItem { get; private set; }
+    public static FullRoutineItem ActiveExerciseItem { get; private set; }
+
+    public static void SetActiveExerciseItem(FullRoutineItem exerciseItem)
+    {
+        ActiveExerciseItem = exerciseItem;
+    }
+
+    public static void ClearActiveExerciseItem(FullRoutineItem exerciseItem = null)
+    {
+        if (exerciseItem == null || ActiveExerciseItem == exerciseItem)
+        {
+            ActiveExerciseItem = null;
+        }
+    }
 
     private static readonly IDictionary<GameEvent, UnityEvent>
         EventsDictionary = new Dictionary<GameEvent, UnityEvent>();

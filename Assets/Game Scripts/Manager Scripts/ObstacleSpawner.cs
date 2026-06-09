@@ -221,6 +221,8 @@ public class ObstacleSpawner : MonoBehaviour
     {
         foreach (FullRoutineItem item in items)
         {
+            EventBus.SetActiveExerciseItem(item);
+
             if (item.spawnObstacle)
             {
                 ApplyExerciseOverrides(item);
@@ -228,6 +230,7 @@ public class ObstacleSpawner : MonoBehaviour
             }
 
             yield return new WaitForSeconds(item.timeUntilNext);
+            EventBus.ClearActiveExerciseItem(item);
         }
     }
 
@@ -242,6 +245,7 @@ public class ObstacleSpawner : MonoBehaviour
         }
 
         StopActiveCoroutines();
+        EventBus.ClearActiveExerciseItem();
         ClearSpawnedObstacles();
         InitializeCallibrationParameters();
 
@@ -261,6 +265,7 @@ public class ObstacleSpawner : MonoBehaviour
         }
 
         StopActiveCoroutines();
+        EventBus.ClearActiveExerciseItem();
         ClearSpawnedObstacles();
         isSpawning = false;
         Time.timeScale = 1.0f;
@@ -383,6 +388,7 @@ public class ObstacleSpawner : MonoBehaviour
         }
         yield return FadeScreen(1.0f);
 
+        EventBus.ClearActiveExerciseItem();
         ClearSpawnedObstacles();
         isSpawning = false;
         activeSpawnCoroutine = null;
