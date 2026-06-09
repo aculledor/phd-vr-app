@@ -1245,12 +1245,16 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         {
             case GameEvent.RIGHT_HIT_SUCCESS:
             case GameEvent.RIGHT_HIT_FAILED:
+            case GameEvent.RIGHT_HIT_MISSED:
             case GameEvent.LEFT_HIT_SUCCESS:
             case GameEvent.LEFT_HIT_FAILED:
+            case GameEvent.LEFT_HIT_MISSED:
             case GameEvent.CROSS_RIGHT_HIT_SUCCESS:
             case GameEvent.CROSS_RIGHT_HIT_FAILED:
+            case GameEvent.CROSS_RIGHT_HIT_MISSED:
             case GameEvent.CROSS_LEFT_HIT_SUCCESS:
             case GameEvent.CROSS_LEFT_HIT_FAILED:
+            case GameEvent.CROSS_LEFT_HIT_MISSED:
             case GameEvent.SQUAT_LEFT_SUCCESS:
             case GameEvent.SQUAT_LEFT_FAILED:
             case GameEvent.SQUAT_MID_SUCCESS:
@@ -1278,9 +1282,19 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
 
     private static string ToExerciseOutcome(GameEvent gameEvent)
     {
-        return gameEvent.ToString().EndsWith("_SUCCESS", StringComparison.Ordinal)
-            ? "success"
-            : "failure";
+        string value = gameEvent.ToString();
+
+        if (value.EndsWith("_SUCCESS", StringComparison.Ordinal))
+        {
+            return "success";
+        }
+
+        if (value.EndsWith("_MISSED", StringComparison.Ordinal))
+        {
+            return "missed";
+        }
+
+        return "failure";
     }
 
     private static string ToExerciseId(GameEvent gameEvent)
@@ -1294,6 +1308,10 @@ public class VrDrupalClient : MonoBehaviour, IBusEventCallback
         else if (value.EndsWith("_failed", StringComparison.Ordinal))
         {
             value = value.Substring(0, value.Length - "_failed".Length);
+        }
+        else if (value.EndsWith("_missed", StringComparison.Ordinal))
+        {
+            value = value.Substring(0, value.Length - "_missed".Length);
         }
 
         return value;
