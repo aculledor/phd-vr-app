@@ -55,7 +55,7 @@ public class RoutineManager : MonoBehaviour
         }
 
         List<XRInputSubsystem> inputSubsystems = new List<XRInputSubsystem>();
-        SubsystemManager.GetInstances(inputSubsystems);
+        SubsystemManager.GetSubsystems(inputSubsystems);
 
         foreach (XRInputSubsystem inputSubsystem in inputSubsystems)
         {

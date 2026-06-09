@@ -4,19 +4,13 @@ public class ObstacleDespawning : MonoBehaviour
 {
     [SerializeField]
     private PlayerTracker playerTracker;
+    private bool missingPlayerTrackerLogged;
 
     private void Start()
     {
         ResolvePlayerTracker();
     }
 
-    private void Start()
-    {
-        if (playerTracker == null && ServiceLocator.Instance != null)
-        {
-            playerTracker = ServiceLocator.Instance.PlayerTracker;
-        }
-    }
 
     private void OnTriggerExit(Collider other)
     {
@@ -37,7 +31,12 @@ public class ObstacleDespawning : MonoBehaviour
 
         if (playerTracker == null)
         {
-            Debug.LogError("ObstacleDespawning necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+            if (!missingPlayerTrackerLogged)
+            {
+                Debug.LogError("ObstacleDespawning necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+                missingPlayerTrackerLogged = true;
+            }
+
             return;
         }
 
@@ -54,6 +53,11 @@ public class ObstacleDespawning : MonoBehaviour
         if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
         {
             playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+
+        if (playerTracker == null)
+        {
+            playerTracker = FindObjectOfType<PlayerTracker>();
         }
 
         return playerTracker;

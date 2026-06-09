@@ -1,18 +1,48 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class StandingDetectionScript : MonoBehaviour
 {
-    // TODO : Rework del player tracker
     [SerializeField]
     private PlayerTracker playerTracker;
 
+    private void Start()
+    {
+        ResolvePlayerTracker();
+    }
+
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("MainCamera"))
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
+        {
+            Debug.LogError("StandingDetectionScript necesita PlayerTracker.", this);
+            return;
+        }
+
+        if (other.CompareTag("MainCamera") || other.transform == playerTracker.transform)
         {
             playerTracker.ResetStandingState();
         }
+    }
+
+    private PlayerTracker ResolvePlayerTracker()
+    {
+        if (playerTracker != null)
+        {
+            return playerTracker;
+        }
+
+        if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
+        {
+            playerTracker = ServiceLocator.Instance.PlayerTracker;
+        }
+
+        if (playerTracker == null)
+        {
+            playerTracker = FindObjectOfType<PlayerTracker>();
+        }
+
+        return playerTracker;
     }
 }

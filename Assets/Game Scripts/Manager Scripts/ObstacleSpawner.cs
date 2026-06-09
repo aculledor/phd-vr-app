@@ -68,43 +68,52 @@ public class ObstacleSpawner : MonoBehaviour
     {
         get
         {
-            PlayerTracker resolvedPlayerTracker = ResolvePlayerTracker();
+            ResolvePlayerTracker();
 
-            if (resolvedPlayerTracker == null)
+            if (playerTracker == null)
             {
-                Debug.LogError("ObstacleSpawner necesita PlayerTracker para calcular ObstacleArrivalTime. Asigna el PlayerTracker que usa el AutoHandPlayerTracker en el inspector o en el ServiceLocator.", this);
+                Debug.LogError("ObstacleSpawner necesita PlayerTracker para calcular ObstacleArrivalTime.", this);
                 return 0.0f;
             }
 
-            Transform middleLaneTransform = GetLaneTransform(ObstacleLane.MID_LANE);
-
-            if (middleLaneTransform == null)
+            if (positionsDictionary == null)
             {
-                Debug.LogError("ObstacleSpawner no tiene configurada la posición MID_LANE para calcular ObstacleArrivalTime.", this);
+                Debug.LogError("ObstacleSpawner positionsDictionary todavía no está inicializado.", this);
+                return 0.0f;
+            }
+
+            if (!positionsDictionary.TryGetValue(ObstacleLane.MID_LANE, out Transform midLaneTransform))
+            {
+                Debug.LogError("ObstacleSpawner no tiene una entrada MID_LANE en positionsDictionary.", this);
+                return 0.0f;
+            }
+
+            if (midLaneTransform == null)
+            {
+                Debug.LogError("ObstacleSpawner tiene MID_LANE en positionsDictionary, pero su Transform está vacío/null. Revisa Positions List en el Inspector.", this);
                 return 0.0f;
             }
 
             if (movementSpeed <= 0.0f)
             {
-                Debug.LogError("ObstacleSpawner necesita movementSpeed mayor que 0 para calcular ObstacleArrivalTime.", this);
+                Debug.LogError("ObstacleSpawner tiene movementSpeed <= 0. No se puede calcular ObstacleArrivalTime.", this);
                 return 0.0f;
             }
 
-            float playerDistance = Mathf.Abs(resolvedPlayerTracker.PlayerPosition.z
-                - middleLaneTransform.position.z);
+            float playerZ = playerTracker.PlayerPosition.z;
+            float obstacleStartZ = midLaneTransform.position.z;
+
+            float playerDistance = Mathf.Abs(playerZ - obstacleStartZ);
 
             return playerDistance / movementSpeed;
         }
     }
 
 
-    private void Awake()
-    {
-        ResolvePlayerTracker();
-    }
-
     private void Start()
     {
+        ResolvePlayerTracker();
+
         this.wallObstacles = new Dictionary<ObstacleType, Dictionary<ObstacleLane, GameObject>>();
         this.targetDictionary = new Dictionary<ObstacleType, GameObject>();
         this.positionsDictionary = new Dictionary<ObstacleLane, Transform>();
@@ -123,32 +132,14 @@ public class ObstacleSpawner : MonoBehaviour
         if (ServiceLocator.Instance != null && ServiceLocator.Instance.PlayerTracker != null)
         {
             playerTracker = ServiceLocator.Instance.PlayerTracker;
-            return playerTracker;
         }
 
-        playerTracker = FindObjectOfType<PlayerTracker>();
+        if (playerTracker == null)
+        {
+            playerTracker = FindObjectOfType<PlayerTracker>();
+        }
+
         return playerTracker;
-    }
-
-    private Transform GetLaneTransform(ObstacleLane lane)
-    {
-        if (positionsDictionary != null && positionsDictionary.TryGetValue(lane, out Transform laneTransform))
-        {
-            return laneTransform;
-        }
-
-        if (positionsList != null)
-        {
-            foreach (LaneItem laneItem in positionsList)
-            {
-                if (laneItem.lane == lane)
-                {
-                    return laneItem.position;
-                }
-            }
-        }
-
-        return null;
     }
 
     //Initialize the obstacles and elements defined in the editor.
@@ -242,12 +233,19 @@ public class ObstacleSpawner : MonoBehaviour
 
     public void StartSpawning()
     {
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
+        {
+            Debug.LogError("No se puede iniciar la rutina: ObstacleSpawner no tiene PlayerTracker.", this);
+            return;
+        }
+
         StopActiveCoroutines();
         ClearSpawnedObstacles();
-        ResolvePlayerTracker();
         InitializeCallibrationParameters();
-        FullRoutineItem[] patientRoutine = routineManager.
-            selectedRoutine.GenerateRoutine();
+
+        FullRoutineItem[] patientRoutine = routineManager.selectedRoutine.GenerateRoutine();
 
         isSpawning = true;
         EventBus.PublishEvent(GameEvent.START_REHAB);

@@ -120,7 +120,6 @@ MonoBehaviour:
   - {fileID: 7413458854745118488}
   - {fileID: 4054846353496584751}
   - {fileID: 154189092879288027}
-  - {fileID: -5822268625614159145}
   - {fileID: 7524627005653756926}
   - {fileID: 2316775424616146661}
   - {fileID: -5611916350011621528}
@@ -277,6 +276,7 @@ MonoBehaviour:
   m_Name: OculusXRFeature Standalone
   m_EditorClassIdentifier: 
   m_enabled: 1
+  <failedInitialization>k__BackingField: 0
   nameUi: OculusXR Feature
   version: 0.0.1
   featureIdInternal: com.oculus.openxr.feature.oculusxr
@@ -732,7 +732,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1927c045052a06d49a9b21fdcaa26db6, type: 3}
   m_Name: OculusXRFeature Android
   m_EditorClassIdentifier: 
-  m_enabled: 1
+  m_enabled: 0
+  <failedInitialization>k__BackingField: 0
   nameUi: OculusXR Feature
   version: 0.0.1
   featureIdInternal: com.oculus.openxr.feature.oculusxr
@@ -945,7 +946,6 @@ MonoBehaviour:
   - {fileID: -3374821517439834568}
   - {fileID: 4150135283803568350}
   - {fileID: -1486801824560632702}
-  - {fileID: 817524542651585517}
   - {fileID: 2815100224599834822}
   - {fileID: 1737542844960192654}
   - {fileID: -5961496784303494864}
@@ -958,7 +958,7 @@ MonoBehaviour:
     m_List: 00000000
   m_depthSubmissionMode: 0
   m_spacewarpMotionVectorTextureFormat: 0
-  m_optimizeBufferDiscards: 0
+  m_optimizeBufferDiscards: 1
   m_symmetricProjection: 0
   m_optimizeMultiviewRenderRegions: 0
   m_multiviewRenderRegionsOptimizationMode: 0

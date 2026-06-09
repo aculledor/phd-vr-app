@@ -4,49 +4,37 @@ public class PunchStateDetectionScript : MonoBehaviour
 {
     [SerializeField]
     private Collider leftCollider;
+
     [SerializeField]
     private Collider rightCollider;
+
     [SerializeField]
     private UserManager userManager;
+
     [SerializeField]
     private PlayerTracker playerTracker;
+
+    [Header("VR positioning")]
+    [SerializeField]
+    private bool followHeadHeight = false;
+
+    [SerializeField]
+    private float heightOffsetFromHead = -0.35f;
 
     private bool leftColliding;
     private bool rightColliding;
     private float offset;
+    private bool missingPlayerTrackerLogged;
 
-    //Verifies the correctness of the action.
-    public bool ValidRightPunch {
-        get
-        {
-            return (!leftColliding && rightColliding);
-        }
+    public bool ValidRightPunch
+    {
+        get { return !leftColliding && rightColliding; }
     }
 
     public bool ValidLeftPunch
     {
-        get
-        {
-            return (leftColliding && !rightColliding);
-        }
+        get { return leftColliding && !rightColliding; }
     }
-
-    //Repositions every frame the collider to a given distance in front of the player
-    private void Update()
-    {
-
-        ResolvePlayerTracker();
-
-        if (playerTracker == null)
-        {
-            Debug.LogError("PunchStateDetectionScript necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
-            return;
-        }
-
-        Vector3 userPosition = playerTracker.PlayerPosition;
-        this.transform.position = new Vector3(userPosition.x, 0.0f, userPosition.z + offset);
-    }
-
 
     private void Start()
     {
@@ -55,12 +43,41 @@ public class PunchStateDetectionScript : MonoBehaviour
         offset = 0.0f;
         leftColliding = false;
         rightColliding = false;
+
         EventBus.Subscribe(UpdateColliderOffset, GameEvent.START_REHAB);
     }
 
     private void OnDestroy()
     {
         EventBus.Unsubscribe(UpdateColliderOffset, GameEvent.START_REHAB);
+    }
+
+    private void Update()
+    {
+        ResolvePlayerTracker();
+
+        if (playerTracker == null)
+        {
+            if (!missingPlayerTrackerLogged)
+            {
+                Debug.LogError("PunchStateDetectionScript necesita PlayerTracker para seguir la cabeza del rig Auto Hand/OpenXR.", this);
+                missingPlayerTrackerLogged = true;
+            }
+
+            return;
+        }
+
+        Vector3 userPosition = playerTracker.PlayerPosition;
+
+        float targetY = followHeadHeight
+            ? userPosition.y + heightOffsetFromHead
+            : transform.position.y;
+
+        transform.position = new Vector3(
+            userPosition.x,
+            targetY,
+            userPosition.z + offset
+        );
     }
 
     private void UpdateColliderOffset()
@@ -84,6 +101,7 @@ public class PunchStateDetectionScript : MonoBehaviour
     {
         if (playerTracker != null)
         {
+            missingPlayerTrackerLogged = false;
             return playerTracker;
         }
 
@@ -92,18 +110,26 @@ public class PunchStateDetectionScript : MonoBehaviour
             playerTracker = ServiceLocator.Instance.PlayerTracker;
         }
 
+        if (playerTracker == null)
+        {
+            playerTracker = FindObjectOfType<PlayerTracker>();
+        }
+
+        if (playerTracker != null)
+        {
+            missingPlayerTrackerLogged = false;
+        }
+
         return playerTracker;
     }
 
-    //Detects which element collided with the box
     private void OnTriggerEnter(Collider other)
     {
-
-        if (other == leftCollider)
+        if (IsLeftHandCollider(other))
         {
             leftColliding = true;
         }
-        else if(other == rightCollider)
+        else if (IsRightHandCollider(other))
         {
             rightColliding = true;
         }
@@ -111,14 +137,48 @@ public class PunchStateDetectionScript : MonoBehaviour
 
     private void OnTriggerExit(Collider other)
     {
-        if (other == leftCollider)
+        if (IsLeftHandCollider(other))
         {
             leftColliding = false;
         }
-        else if (other == rightCollider)
+        else if (IsRightHandCollider(other))
         {
             rightColliding = false;
         }
     }
 
+    private bool IsLeftHandCollider(Collider other)
+    {
+        return IsSameColliderOrChild(other, leftCollider);
+    }
+
+    private bool IsRightHandCollider(Collider other)
+    {
+        return IsSameColliderOrChild(other, rightCollider);
+    }
+
+    private bool IsSameColliderOrChild(Collider other, Collider expectedCollider)
+    {
+        if (other == null || expectedCollider == null)
+        {
+            return false;
+        }
+
+        if (other == expectedCollider)
+        {
+            return true;
+        }
+
+        if (other.transform.IsChildOf(expectedCollider.transform))
+        {
+            return true;
+        }
+
+        if (expectedCollider.transform.IsChildOf(other.transform))
+        {
+            return true;
+        }
+
+        return false;
+    }
 }
