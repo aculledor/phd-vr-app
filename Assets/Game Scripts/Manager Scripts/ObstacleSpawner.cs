@@ -352,7 +352,7 @@ public class ObstacleSpawner : MonoBehaviour
         }
         else if (targetDictionary.TryGetValue(item.obstacleElement, out obj))
         {
-            obj = Instantiate(obj, positionsDictionary[item.obstacleLane]);
+            obj = Instantiate(obj, positionsDictionary[ObstacleLane.MID_LANE]);
         }
 
         if (obj != null)

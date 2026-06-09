@@ -62,7 +62,9 @@ public class ScoreSystem : MonoBehaviour
         EventBus.Subscribe(HandleMovementFailure, GameEvent.MOVEMENT_LEFT_FAILED, GameEvent.MOVEMENT_MID_FAILED,
             GameEvent.MOVEMENT_RIGHT_FAILED);
         EventBus.Subscribe(HandlePunchFailure, GameEvent.RIGHT_HIT_FAILED, GameEvent.LEFT_HIT_FAILED,
-            GameEvent.CROSS_LEFT_HIT_FAILED, GameEvent.CROSS_RIGHT_HIT_FAILED);
+            GameEvent.CROSS_LEFT_HIT_FAILED, GameEvent.CROSS_RIGHT_HIT_FAILED,
+            GameEvent.RIGHT_HIT_MISSED, GameEvent.LEFT_HIT_MISSED,
+            GameEvent.CROSS_LEFT_HIT_MISSED, GameEvent.CROSS_RIGHT_HIT_MISSED);
 
     }
     private void Update()
@@ -93,7 +95,9 @@ public class ScoreSystem : MonoBehaviour
         EventBus.Unsubscribe(HandleMovementFailure, GameEvent.MOVEMENT_LEFT_FAILED, GameEvent.MOVEMENT_MID_FAILED,
             GameEvent.MOVEMENT_RIGHT_FAILED);
         EventBus.Unsubscribe(HandlePunchFailure, GameEvent.RIGHT_HIT_FAILED, GameEvent.LEFT_HIT_FAILED,
-            GameEvent.CROSS_LEFT_HIT_FAILED, GameEvent.CROSS_RIGHT_HIT_FAILED);
+            GameEvent.CROSS_LEFT_HIT_FAILED, GameEvent.CROSS_RIGHT_HIT_FAILED,
+            GameEvent.RIGHT_HIT_MISSED, GameEvent.LEFT_HIT_MISSED,
+            GameEvent.CROSS_LEFT_HIT_MISSED, GameEvent.CROSS_RIGHT_HIT_MISSED);
     }
     private void HandlePunchSuccess()
     {

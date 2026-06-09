@@ -47,8 +47,11 @@ public class TargetScript : MonoBehaviour, IObstacleHandling
 
     public void DestroyObstacle()
     {
-        if(!hit)
-            PublishResultEvent(failureEvent);
+        if (!hit)
+        {
+            PublishResultEvent(GetMissedEvent());
+        }
+
         this.obstacleSpawner.RemoveObstacle(this.gameObject);
     }
 
@@ -84,6 +87,23 @@ public class TargetScript : MonoBehaviour, IObstacleHandling
     {
         ServerExerciseContext context = GetComponentInParent<ServerExerciseContext>();
         EventBus.PublishEvent(gameEvent, context != null ? context.RoutineItem : null);
+    }
+
+    private GameEvent GetMissedEvent()
+    {
+        switch (failureEvent)
+        {
+            case GameEvent.RIGHT_HIT_FAILED:
+                return GameEvent.RIGHT_HIT_MISSED;
+            case GameEvent.LEFT_HIT_FAILED:
+                return GameEvent.LEFT_HIT_MISSED;
+            case GameEvent.CROSS_RIGHT_HIT_FAILED:
+                return GameEvent.CROSS_RIGHT_HIT_MISSED;
+            case GameEvent.CROSS_LEFT_HIT_FAILED:
+                return GameEvent.CROSS_LEFT_HIT_MISSED;
+            default:
+                return failureEvent;
+        }
     }
 
     protected virtual void InitPosition()
